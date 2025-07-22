@@ -17,6 +17,11 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.config['WTF_CSRF_ENABLED'] = True
 
+# Solução para o erro do JSONEncoder
+import flask.json
+import flask_wtf.recaptcha.widgets
+flask_wtf.recaptcha.widgets.JSONEncoder = flask.json.JSONEncoder
+
 # Configurações de CSRF
 csrf = CSRFProtect(app)
 
