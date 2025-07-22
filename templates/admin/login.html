@@ -4,11 +4,11 @@
 <div class="row justify-content-center mt-5">
     <div class="col-md-6">
         <div class="card">
-            <div class="card-header bg-premium text-white">
-                <h3 class="mb-0 text-center">Login de Assinante</h3>
+            <div class="card-header bg-primary text-white">
+                <h4 class="mb-0">Login Premium</h4>
             </div>
             <div class="card-body">
-                <form method="POST" action="{{ url_for('login') }}">
+                <form method="POST" action="{{ url_for('user_login') }}">
                     <div class="mb-3">
                         <label for="email" class="form-label">E-mail</label>
                         <input type="email" class="form-control" id="email" name="email" required>
@@ -18,12 +18,17 @@
                         <input type="password" class="form-control" id="password" name="password" required>
                     </div>
                     <div class="d-grid gap-2">
-                        <button type="submit" class="btn btn-premium">Entrar</button>
+                        <button type="submit" class="btn btn-primary">Entrar</button>
                         <a href="{{ url_for('premium_subscription') }}" class="btn btn-outline-secondary">
-                            Não tem assinatura? Assine agora
+                            Criar conta premium
                         </a>
                     </div>
                 </form>
+            </div>
+            <div class="card-footer text-center">
+                <small>
+                    <a href="#">Esqueci minha senha</a>
+                </small>
             </div>
         </div>
     </div>
