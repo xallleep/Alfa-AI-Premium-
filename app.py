@@ -8,19 +8,21 @@ from functools import wraps
 
 # Configurações básicas
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'dev-key-123-premium-456')
+app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24))
 app.config['DATABASE'] = os.path.join(app.instance_path, 'matches.db')
 app.config['SESSION_COOKIE_SECURE'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 
 # Configurações de logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Configurações de admin - Versão segura
+# Configurações de admin
 ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'admin')
-ADMIN_PASSWORD_HASH = generate_password_hash(os.environ.get('ADMIN_PASSWORD', 'admin123premium'))
+ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin123premium')
+ADMIN_PASSWORD_HASH = generate_password_hash(ADMIN_PASSWORD)
 
 # Decorators
 def login_required(f):
@@ -45,6 +47,7 @@ def admin_required(f):
 def get_db():
     db = sqlite3.connect(app.config['DATABASE'])
     db.row_factory = sqlite3.Row
+    db.execute('PRAGMA foreign_keys = ON')
     return db
 
 def init_db():
@@ -102,7 +105,7 @@ def init_db():
                 payment_date TEXT NOT NULL,
                 expiry_date TEXT NOT NULL,
                 is_active BOOLEAN DEFAULT 1,
-                FOREIGN KEY(user_id) REFERENCES users(id)
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
             )
         ''')
         
@@ -122,7 +125,7 @@ with app.app_context():
 def format_date(date_str):
     try:
         return datetime.strptime(date_str, '%Y-%m-%d').strftime('%d/%m/%Y')
-    except:
+    except ValueError:
         return date_str
 
 # Rotas principais
@@ -289,7 +292,7 @@ def admin_login():
             # Proteção contra redirecionamento aberto
             next_url = request.args.get('next')
             if not next_url or not next_url.startswith('/'):
-                next_url = url_for('admin_dashboard')
+                next_url = url_for('admin_dashboard'))
             return redirect(next_url)
         else:
             import time
@@ -326,6 +329,107 @@ def admin_dashboard():
     finally:
         db.close()
 
+@app.route('/admin/match/add', methods=['GET', 'POST'])
+@admin_required
+def add_match():
+    if request.method == 'POST':
+        try:
+            db = get_db()
+            db.execute('''
+                INSERT INTO matches (
+                    home_team, away_team, competition, location, 
+                    match_date, match_time, predicted_score,
+                    home_win_percent, away_win_percent, draw_percent
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                request.form.get('home_team'),
+                request.form.get('away_team'),
+                request.form.get('competition'),
+                request.form.get('location'),
+                request.form.get('match_date'),
+                request.form.get('match_time'),
+                request.form.get('predicted_score'),
+                request.form.get('home_win_percent', 0),
+                request.form.get('away_win_percent', 0),
+                request.form.get('draw_percent', 0)
+            ))
+            db.commit()
+            flash('Partida adicionada com sucesso!', 'success')
+            return redirect(url_for('admin_dashboard'))
+        except Exception as e:
+            logger.error(f"Erro ao adicionar partida: {str(e)}")
+            flash('Erro ao adicionar partida', 'danger')
+        finally:
+            db.close()
+    
+    return render_template('admin/add_match.html')
+
+@app.route('/admin/match/edit/<int:match_id>', methods=['GET', 'POST'])
+@admin_required
+def edit_match(match_id):
+    try:
+        db = get_db()
+        
+        if request.method == 'POST':
+            db.execute('''
+                UPDATE matches SET
+                    home_team = ?,
+                    away_team = ?,
+                    competition = ?,
+                    location = ?,
+                    match_date = ?,
+                    match_time = ?,
+                    predicted_score = ?,
+                    home_win_percent = ?,
+                    away_win_percent = ?,
+                    draw_percent = ?
+                WHERE id = ?
+            ''', (
+                request.form.get('home_team'),
+                request.form.get('away_team'),
+                request.form.get('competition'),
+                request.form.get('location'),
+                request.form.get('match_date'),
+                request.form.get('match_time'),
+                request.form.get('predicted_score'),
+                request.form.get('home_win_percent', 0),
+                request.form.get('away_win_percent', 0),
+                request.form.get('draw_percent', 0),
+                match_id
+            ))
+            db.commit()
+            flash('Partida atualizada com sucesso!', 'success')
+            return redirect(url_for('admin_dashboard'))
+        
+        match = db.execute('SELECT * FROM matches WHERE id = ?', (match_id,)).fetchone()
+        if not match:
+            flash('Partida não encontrada', 'danger')
+            return redirect(url_for('admin_dashboard'))
+            
+        return render_template('admin/edit_match.html', match=match)
+        
+    except Exception as e:
+        logger.error(f"Erro ao editar partida: {str(e)}")
+        flash('Erro ao editar partida', 'danger')
+        return redirect(url_for('admin_dashboard'))
+    finally:
+        db.close()
+
+@app.route('/admin/match/delete/<int:match_id>', methods=['POST'])
+@admin_required
+def delete_match(match_id):
+    try:
+        db = get_db()
+        db.execute('DELETE FROM matches WHERE id = ?', (match_id,))
+        db.commit()
+        flash('Partida excluída com sucesso!', 'success')
+    except Exception as e:
+        logger.error(f"Erro ao excluir partida: {str(e)}")
+        flash('Erro ao excluir partida', 'danger')
+    finally:
+        db.close()
+    return redirect(url_for('admin_dashboard'))
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=port, debug=False)
