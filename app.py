@@ -18,26 +18,26 @@ app.config['TEMPLATES_AUTO_RELOAD'] = True
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Configurações de admin
-ADMIN_USER = os.environ.get('ADMIN_USER', 'admin')
-ADMIN_PASS = generate_password_hash(os.environ.get('ADMIN_PASS', 'admin123premium'))
+# Configurações de admin - Versão segura
+ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'admin')
+ADMIN_PASSWORD_HASH = generate_password_hash(os.environ.get('ADMIN_PASSWORD', 'admin123premium'))
 
 # Decorators
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if not session.get('admin_logged_in'):
-            flash('Acesso restrito a administradores', 'danger')
-            return redirect(url_for('admin_login'))
+        if not session.get('logged_in'):
+            flash('Acesso restrito a usuários premium', 'danger')
+            return redirect(url_for('premium_subscription'))
         return f(*args, **kwargs)
     return decorated_function
 
-def premium_required(f):
+def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if not session.get('premium_user'):
-            flash('Conteúdo exclusivo para assinantes Premium', 'warning')
-            return redirect(url_for('premium_subscription'))
+        if not session.get('admin_logged_in'):
+            flash('Acesso restrito a administradores', 'danger')
+            return redirect(url_for('admin_login', next=request.url))
         return f(*args, **kwargs)
     return decorated_function
 
@@ -52,7 +52,6 @@ def init_db():
         os.makedirs(app.instance_path, exist_ok=True)
         db = get_db()
         
-        # Tabela de partidas
         db.execute('''
             CREATE TABLE IF NOT EXISTS matches (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -83,7 +82,6 @@ def init_db():
             )
         ''')
         
-        # Tabela de usuários (simplificada para demo)
         db.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -95,11 +93,24 @@ def init_db():
             )
         ''')
         
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS subscriptions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                subscription_type TEXT NOT NULL,
+                payment_amount REAL NOT NULL,
+                payment_date TEXT NOT NULL,
+                expiry_date TEXT NOT NULL,
+                is_active BOOLEAN DEFAULT 1,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+        ''')
+        
         db.commit()
         logger.info("Banco de dados inicializado com sucesso")
     except Exception as e:
         logger.error(f"Erro ao inicializar banco de dados: {str(e)}")
-        raise
+        flash('Erro ao inicializar banco de dados', 'danger')
     finally:
         db.close()
 
@@ -116,11 +127,11 @@ def format_date(date_str):
 
 # Rotas principais
 @app.route('/')
+@login_required
 def index():
     try:
         db = get_db()
         
-        # Pega apenas jogos dos próximos 7 dias para otimização
         today = datetime.now().strftime('%Y-%m-%d')
         next_week = (datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d')
         
@@ -149,177 +160,172 @@ def index():
                             today_matches=today_matches,
                             other_matches=other_matches,
                             last_updated=last_updated,
-                            is_premium=session.get('premium_user', False))
+                            is_premium=True)
     except Exception as e:
         logger.error(f"Erro na rota index: {str(e)}")
         return render_template('error.html', message="Erro ao carregar dados"), 500
+    finally:
+        db.close()
 
 @app.route('/premium')
 def premium_subscription():
+    if session.get('logged_in'):
+        return redirect(url_for('index'))
     return render_template('premium.html')
 
 @app.route('/subscribe', methods=['POST'])
 def subscribe():
     sub_type = request.form.get('subscription_type')
+    email = request.form.get('email')
+    password = request.form.get('password')
     
-    # Simulação de pagamento - em produção integrar com gateway de pagamento
-    if sub_type == 'monthly':
-        session['premium_user'] = True
-        session['premium_expiry'] = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
-        flash('Assinatura mensal ativada por R$6,99!', 'success')
-    elif sub_type == 'yearly':
-        session['premium_user'] = True
-        session['premium_expiry'] = (datetime.now() + timedelta(days=365)).strftime('%Y-%m-%d')
-        flash('Assinatura anual ativada por R$80,99!', 'success')
+    if not email or not password:
+        flash('Por favor, preencha todos os campos', 'danger')
+        return redirect(url_for('premium_subscription'))
     
-    return redirect(url_for('index'))
+    try:
+        db = get_db()
+        
+        # Verifica se o usuário já existe
+        user = db.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
+        
+        if user:
+            flash('Este e-mail já está cadastrado', 'danger')
+            return redirect(url_for('premium_subscription'))
+        
+        # Cria o usuário
+        hashed_password = generate_password_hash(password)
+        db.execute('INSERT INTO users (email, password, is_premium) VALUES (?, ?, 1)', 
+                  (email, hashed_password))
+        
+        # Adiciona a assinatura
+        if sub_type == 'monthly':
+            amount = 6.99
+            expiry_date = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
+        else:
+            amount = 80.99
+            expiry_date = (datetime.now() + timedelta(days=365)).strftime('%Y-%m-%d')
+            
+        user_id = db.execute('SELECT last_insert_rowid()').fetchone()[0]
+        
+        db.execute('''
+            INSERT INTO subscriptions 
+            (user_id, subscription_type, payment_amount, payment_date, expiry_date)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (
+            user_id,
+            sub_type,
+            amount,
+            datetime.now().strftime('%Y-%m-%d'),
+            expiry_date
+        ))
+        
+        db.commit()
+        
+        session['logged_in'] = True
+        session['user_email'] = email
+        session['is_premium'] = True
+        
+        flash('Assinatura realizada com sucesso!', 'success')
+        return redirect(url_for('index'))
+        
+    except Exception as e:
+        logger.error(f"Erro ao criar assinatura: {str(e)}")
+        flash('Erro ao processar assinatura', 'danger')
+        return redirect(url_for('premium_subscription'))
+    finally:
+        db.close()
+
+@app.route('/login', methods=['GET', 'POST'])
+def user_login():
+    if request.method == 'POST':
+        email = request.form.get('email')
+        password = request.form.get('password')
+        
+        try:
+            db = get_db()
+            user = db.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
+            
+            if user and check_password_hash(user['password'], password):
+                session['logged_in'] = True
+                session['user_email'] = email
+                session['is_premium'] = bool(user['is_premium'])
+                flash('Login realizado com sucesso!', 'success')
+                return redirect(url_for('index'))
+            else:
+                flash('Credenciais inválidas', 'danger')
+                
+        except Exception as e:
+            logger.error(f"Erro no login: {str(e)}")
+            flash('Erro ao processar login', 'danger')
+        finally:
+            db.close()
+    
+    return render_template('login.html')
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    flash('Você foi desconectado', 'info')
+    return redirect(url_for('premium_subscription'))
 
 # Admin routes
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
     if request.method == 'POST':
-        if (request.form['username'] == ADMIN_USER and 
-            check_password_hash(ADMIN_PASS, request.form['password'])):
+        username = request.form.get('username')
+        password = request.form.get('password')
+        
+        if not username or not password:
+            flash('Por favor, preencha todos os campos', 'danger')
+            return redirect(url_for('admin_login'))
+        
+        # Verificação segura com hash
+        if username == ADMIN_USERNAME and check_password_hash(ADMIN_PASSWORD_HASH, password):
             session['admin_logged_in'] = True
-            return redirect(url_for('admin_dashboard'))
-        flash('Credenciais inválidas', 'danger')
+            session['admin_username'] = username
+            flash('Login administrativo realizado com sucesso!', 'success')
+            
+            # Proteção contra redirecionamento aberto
+            next_url = request.args.get('next')
+            if not next_url or not next_url.startswith('/'):
+                next_url = url_for('admin_dashboard')
+            return redirect(next_url)
+        else:
+            import time
+            time.sleep(1)  # Delay para evitar timing attacks
+            flash('Credenciais inválidas', 'danger')
+    
     return render_template('admin/login.html')
 
 @app.route('/admin/logout')
+@admin_required
 def admin_logout():
     session.pop('admin_logged_in', None)
+    session.pop('admin_username', None)
+    flash('Você foi desconectado', 'info')
     return redirect(url_for('index'))
 
 @app.route('/admin/dashboard')
-@login_required
+@admin_required
 def admin_dashboard():
-    db = get_db()
-    matches = db.execute('SELECT * FROM matches ORDER BY match_date DESC LIMIT 50').fetchall()
-    db.close()
-    return render_template('admin/dashboard.html', matches=matches)
-
-@app.route('/admin/matches/add', methods=['GET', 'POST'])
-@login_required
-def add_match():
-    if request.method == 'POST':
-        try:
-            db = get_db()
-            db.execute('''
-                INSERT INTO matches (
-                    home_team, away_team, competition, location, match_date, match_time,
-                    predicted_score, home_win_percent, draw_percent, away_win_percent,
-                    over_15_percent, over_25_percent, btts_percent, yellow_cards_predicted,
-                    red_cards_predicted, corners_predicted, possession_home, possession_away,
-                    shots_on_target_home, shots_on_target_away, details, display_order, color_scheme
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                request.form['home_team'], request.form['away_team'],
-                request.form.get('competition'), request.form.get('location'),
-                request.form['match_date'], request.form['match_time'],
-                request.form.get('predicted_score'), 
-                request.form.get('home_win_percent', 0),
-                request.form.get('draw_percent', 0),
-                request.form.get('away_win_percent', 0),
-                request.form.get('over_15_percent', 0),
-                request.form.get('over_25_percent', 0),
-                request.form.get('btts_percent', 0),
-                request.form.get('yellow_cards_predicted', 0),
-                request.form.get('red_cards_predicted', 0),
-                request.form.get('corners_predicted', 0),
-                request.form.get('possession_home', 50),
-                request.form.get('possession_away', 50),
-                request.form.get('shots_on_target_home', 0),
-                request.form.get('shots_on_target_away', 0),
-                request.form.get('details'),
-                request.form.get('display_order', 0),
-                request.form.get('color_scheme', 'blue')
-            ))
-            db.commit()
-            flash('Partida adicionada com sucesso!', 'success')
-            return redirect(url_for('admin_dashboard'))
-        except Exception as e:
-            logger.error(f"Erro ao adicionar partida: {str(e)}")
-            flash('Erro ao adicionar partida', 'danger')
-        finally:
-            db.close()
-    return render_template('admin/add_match.html')
-
-@app.route('/admin/matches/<int:match_id>/edit', methods=['GET', 'POST'])
-@login_required
-def edit_match(match_id):
-    db = get_db()
-    match = db.execute('SELECT * FROM matches WHERE id = ?', (match_id,)).fetchone()
-    
-    if request.method == 'POST':
-        try:
-            db.execute('''
-                UPDATE matches SET
-                    home_team = ?, away_team = ?, competition = ?, location = ?,
-                    match_date = ?, match_time = ?, predicted_score = ?,
-                    home_win_percent = ?, draw_percent = ?, away_win_percent = ?,
-                    over_15_percent = ?, over_25_percent = ?, btts_percent = ?,
-                    yellow_cards_predicted = ?, red_cards_predicted = ?,
-                    corners_predicted = ?, possession_home = ?, possession_away = ?,
-                    shots_on_target_home = ?, shots_on_target_away = ?,
-                    details = ?, display_order = ?, color_scheme = ?
-                WHERE id = ?
-            ''', (
-                request.form['home_team'], request.form['away_team'],
-                request.form.get('competition'), request.form.get('location'),
-                request.form['match_date'], request.form['match_time'],
-                request.form.get('predicted_score'),
-                request.form.get('home_win_percent', 0),
-                request.form.get('draw_percent', 0),
-                request.form.get('away_win_percent', 0),
-                request.form.get('over_15_percent', 0),
-                request.form.get('over_25_percent', 0),
-                request.form.get('btts_percent', 0),
-                request.form.get('yellow_cards_predicted', 0),
-                request.form.get('red_cards_predicted', 0),
-                request.form.get('corners_predicted', 0),
-                request.form.get('possession_home', 50),
-                request.form.get('possession_away', 50),
-                request.form.get('shots_on_target_home', 0),
-                request.form.get('shots_on_target_away', 0),
-                request.form.get('details'),
-                request.form.get('display_order', 0),
-                request.form.get('color_scheme', 'blue'),
-                match_id
-            ))
-            db.commit()
-            flash('Partida atualizada com sucesso!', 'success')
-            return redirect(url_for('admin_dashboard'))
-        except Exception as e:
-            logger.error(f"Erro ao atualizar partida: {str(e)}")
-            flash('Erro ao atualizar partida', 'danger')
-        finally:
-            db.close()
-    
-    return render_template('admin/edit_match.html', match=match)
-
-@app.route('/admin/matches/<int:match_id>/delete', methods=['POST'])
-@login_required
-def delete_match(match_id):
     try:
         db = get_db()
-        db.execute('DELETE FROM matches WHERE id = ?', (match_id,))
-        db.commit()
-        flash('Partida removida com sucesso!', 'success')
+        matches = db.execute('SELECT * FROM matches ORDER BY match_date DESC LIMIT 50').fetchall()
+        users = db.execute('SELECT COUNT(*) as count FROM users').fetchone()['count']
+        premium_users = db.execute('SELECT COUNT(*) as count FROM users WHERE is_premium = 1').fetchone()['count']
+        
+        return render_template('admin/dashboard.html', 
+                             matches=matches,
+                             users=users,
+                             premium_users=premium_users)
     except Exception as e:
-        logger.error(f"Erro ao remover partida: {str(e)}")
-        flash('Erro ao remover partida', 'danger')
+        logger.error(f"Erro no dashboard admin: {str(e)}")
+        flash('Erro ao carregar dados', 'danger')
+        return redirect(url_for('admin_login'))
     finally:
         db.close()
-    return redirect(url_for('admin_dashboard'))
-
-# Error handlers
-@app.errorhandler(404)
-def page_not_found(e):
-    return render_template('error.html', message="Página não encontrada"), 404
-
-@app.errorhandler(500)
-def internal_error(e):
-    return render_template('error.html', message="Erro interno do servidor"), 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
