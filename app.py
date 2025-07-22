@@ -39,7 +39,7 @@ def admin_required(f):
     def decorated_function(*args, **kwargs):
         if not session.get('admin_logged_in'):
             flash('Acesso restrito a administradores', 'danger')
-            return redirect(url_for('admin_login', next=request.url))
+            return redirect(url_for('admin_login'))
         return f(*args, **kwargs)
     return decorated_function
 
@@ -127,6 +127,13 @@ def format_date(date_str):
         return datetime.strptime(date_str, '%Y-%m-%d').strftime('%d/%m/%Y')
     except ValueError:
         return date_str
+
+# Proteção para rotas admin
+@app.before_request
+def before_request():
+    if request.path.startswith('/admin') and not request.path.startswith('/admin/login'):
+        if not session.get('admin_logged_in'):
+            return redirect(url_for('admin_login'))
 
 # Rotas principais
 @app.route('/')
@@ -288,12 +295,7 @@ def admin_login():
             session['admin_logged_in'] = True
             session['admin_username'] = username
             flash('Login administrativo realizado com sucesso!', 'success')
-            
-            # Proteção contra redirecionamento aberto
-            next_url = request.args.get('next')
-            if not next_url or not next_url.startswith('/'):
-                next_url = url_for('admin_dashboard')
-            return redirect(next_url)
+            return redirect(url_for('admin_dashboard'))
         else:
             import time
             time.sleep(1)  # Delay para evitar timing attacks
