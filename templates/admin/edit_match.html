@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+            <div class="card">
+                <div class="card-header bg-premium text-white">
+                    <h3 class="mb-0">Editar Partida</h3>
+                </div>
+                <div class="card-body">
+                    <form method="POST">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label for="home_team" class="form-label">Time da Casa</label>
+                                <input type="text" class="form-control" id="home_team" name="home_team" value="{{ match.home_team }}" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="away_team" class="form-label">Time Visitante</label>
+                                <input type="text" class="form-control" id="away_team" name="away_team" value="{{ match.away_team }}" required>
+                            </div>
+                            
+                            <div class="col-md-6">
+                                <label for="competition" class="form-label">Competição</label>
+                                <input type="text" class="form-control" id="competition" name="competition" value="{{ match.competition or '' }}">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="location" class="form-label">Local</label>
+                                <input type="text" class="form-control" id="location" name="location" value="{{ match.location or '' }}">
+                            </div>
+                            
+                            <div class="col-md-6">
+                                <label for="match_date" class="form-label">Data</label>
+                                <input type="date" class="form-control" id="match_date" name="match_date" value="{{ match.match_date }}" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="match_time" class="form-label">Hora</label>
+                                <input type="time" class="form-control" id="match_time" name="match_time" value="{{ match.match_time }}" required>
+                            </div>
+                            
+                            <div class="col-12">
+                                <hr>
+                                <h5>Previsões</h5>
+                            </div>
+                            
+                            <div class="col-md-4">
+                                <label for="predicted_score" class="form-label">Placar Previsto</label>
+                                <input type="text" class="form-control" id="predicted_score" name="predicted_score" value="{{ match.predicted_score or '' }}" placeholder="Ex: 2-1">
+                            </div>
+                            
+                            <div class="col-md-4">
+                                <label for="home_win_percent" class="form-label">% Vitória Casa</label>
+                                <input type="number" class="form-control" id="home_win_percent" name="home_win_percent" min="0" max="100" value="{{ match.home_win_percent }}">
+                            </div>
+                            
+                            <div class="col-md-4">
+                                <label for="away_win_percent" class="form-label">% Vitória Visitante</label>
+                                <input type="number" class="form-control" id="away_win_percent" name="away_win_percent" min="0" max="100" value="{{ match.away_win_percent }}">
+                            </div>
+                            
+                            <div class="col-12">
+                                <button type="submit" class="btn btn-premium">Atualizar Partida</button>
+                                <a href="{{ url_for('admin_dashboard') }}" class="btn btn-outline-secondary">Cancelar</a>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
