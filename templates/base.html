@@ -23,15 +23,30 @@
                     <li class="nav-item">
                         <a class="nav-link active" href="{{ url_for('index') }}">Previsões</a>
                     </li>
+                    {% if session.get('admin_logged_in') %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('admin_dashboard') }}">Admin</a>
+                    </li>
+                    {% endif %}
                 </ul>
                 <div class="d-flex">
-                    {% if session.get('premium_user') %}
+                    {% if session.get('logged_in') %}
                         <span class="badge bg-warning text-dark me-3 my-auto">
                             <i class="bi bi-star-fill"></i> Premium
                         </span>
+                        <a href="{{ url_for('logout') }}" class="btn btn-sm btn-outline-light">
+                            <i class="bi bi-box-arrow-right"></i> Sair
+                        </a>
+                    {% elif session.get('admin_logged_in') %}
+                        <a href="{{ url_for('admin_logout') }}" class="btn btn-sm btn-outline-light">
+                            <i class="bi bi-box-arrow-right"></i> Sair Admin
+                        </a>
                     {% else %}
-                        <a href="{{ url_for('premium_subscription') }}" class="btn btn-sm btn-outline-light">
-                            <i class="bi bi-gem"></i> Assinar Premium
+                        <a href="{{ url_for('login') }}" class="btn btn-sm btn-outline-light me-2">
+                            <i class="bi bi-box-arrow-in-right"></i> Entrar
+                        </a>
+                        <a href="{{ url_for('premium_subscription') }}" class="btn btn-sm btn-premium">
+                            <i class="bi bi-gem"></i> Assinar
                         </a>
                     {% endif %}
                 </div>
@@ -41,12 +56,16 @@
 
     <main class="container my-4">
         {% with messages = get_flashed_messages(with_categories=true) %}
-            {% for category, message in messages %}
-                <div class="alert alert-{{ category }} alert-dismissible fade show">
-                    {{ message }}
-                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            {% if messages %}
+                <div class="flashes">
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ category }} alert-dismissible fade show">
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>
+                    {% endfor %}
                 </div>
-            {% endfor %}
+            {% endif %}
         {% endwith %}
 
         {% block content %}{% endblock %}
@@ -58,7 +77,8 @@
             <p class="mb-0 small">
                 &copy; 2023 - Todos os direitos reservados | 
                 <a href="#" class="text-white">Termos de Uso</a> | 
-                <a href="#" class="text-white">Política de Privacidade</a>
+                <a href="#" class="text-white">Política de Privacidade</a> | 
+                <a href="{{ url_for('admin_login') }}" class="text-white">Admin</a>
             </p>
         </div>
     </footer>
