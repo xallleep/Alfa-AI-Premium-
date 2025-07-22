@@ -292,7 +292,7 @@ def admin_login():
             # Proteção contra redirecionamento aberto
             next_url = request.args.get('next')
             if not next_url or not next_url.startswith('/'):
-                next_url = url_for('admin_dashboard'))
+                next_url = url_for('admin_dashboard')
             return redirect(next_url)
         else:
             import time
