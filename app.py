@@ -5,7 +5,7 @@ import sqlite3
 from werkzeug.security import generate_password_hash, check_password_hash
 import logging
 from functools import wraps
-from flask_wtf.csrf import CSRFProtect
+from flask_wtf import CSRFProtect
 import json
 
 # Configurações básicas
@@ -18,29 +18,14 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.config['WTF_CSRF_ENABLED'] = True
 
-# Solução para o erro do JSONEncoder
-try:
-    from flask import json
-    JSONEncoder = json.JSONEncoder
-except AttributeError:
-    # Para versões mais recentes do Flask
-    from flask.json.provider import JSONProvider
-    class FlaskJSONEncoder(json.JSONEncoder):
-        def default(self, o):
-            if hasattr(o, '__html__'):
-                return str(o.__html__())
-            return super().default(o)
-    
-    class FlaskJSONProvider(JSONProvider):
-        def dumps(self, obj, **kwargs):
-            return json.dumps(obj, **kwargs, cls=FlaskJSONEncoder)
-        
-        def loads(self, s, **kwargs):
-            return json.loads(s, **kwargs)
-    
-    app.json_provider_class = FlaskJSONProvider
-    app.json = FlaskJSONProvider(app)
-    JSONEncoder = FlaskJSONEncoder
+# Solução definitiva para o erro do JSONEncoder
+class FlaskJSONEncoder(json.JSONEncoder):
+    def default(self, o):
+        if hasattr(o, '__html__'):
+            return str(o.__html__())
+        return super().default(o)
+
+app.json_encoder = FlaskJSONEncoder
 
 # Configurações de CSRF
 csrf = CSRFProtect(app)
