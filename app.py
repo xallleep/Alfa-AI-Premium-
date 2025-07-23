@@ -7,6 +7,9 @@ import logging
 from functools import wraps
 from flask_wtf import CSRFProtect
 import json
+from flask_wtf import FlaskForm
+from wtforms import StringField, PasswordField, HiddenField
+from wtforms.validators import DataRequired, Email
 
 # Configurações básicas
 app = Flask(__name__)
@@ -23,6 +26,20 @@ PAGBANK_LINKS = {
     'monthly': 'https://pag.ae/7_TnPtRxH',
     'yearly': 'https://pag.ae/7_TnQbYun'
 }
+
+# Classes de formulário
+class SubscriptionForm(FlaskForm):
+    email = StringField('Email', validators=[DataRequired(), Email()])
+    password = PasswordField('Password', validators=[DataRequired()])
+    subscription_type = HiddenField('Subscription Type', validators=[DataRequired()])
+
+class LoginForm(FlaskForm):
+    email = StringField('Email', validators=[DataRequired(), Email()])
+    password = PasswordField('Password', validators=[DataRequired()])
+
+class AdminLoginForm(FlaskForm):
+    username = StringField('Username', validators=[DataRequired()])
+    password = PasswordField('Password', validators=[DataRequired()])
 
 # Solução para o JSONEncoder
 class FlaskJSONEncoder(json.JSONEncoder):
@@ -221,13 +238,15 @@ def index():
 
 @app.route('/premium')
 def premium_subscription():
-    return render_template('premium.html', pagbank_links=PAGBANK_LINKS)
+    form = SubscriptionForm()
+    return render_template('premium.html', form=form, pagbank_links=PAGBANK_LINKS)
 
 @app.route('/login', methods=['GET', 'POST'])
 def user_login():
-    if request.method == 'POST':
-        email = request.form.get('email')
-        password = request.form.get('password')
+    form = LoginForm()
+    if form.validate_on_submit():
+        email = form.email.data
+        password = form.password.data
         
         try:
             db = get_db()
@@ -247,7 +266,7 @@ def user_login():
         finally:
             db.close()
     
-    return render_template('login.html')
+    return render_template('login.html', form=form)
 
 @app.route('/logout')
 def logout():
@@ -257,9 +276,10 @@ def logout():
 
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
-    if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
+    form = AdminLoginForm()
+    if form.validate_on_submit():
+        username = form.username.data
+        password = form.password.data
         
         if username == ADMIN_USERNAME and check_password_hash(ADMIN_PASSWORD_HASH, password):
             session['admin_logged_in'] = True
@@ -268,7 +288,7 @@ def admin_login():
         else:
             flash('Credenciais de administrador incorretas', 'danger')
     
-    return render_template('admin_login.html')
+    return render_template('admin_login.html', form=form)
 
 @app.route('/admin/logout')
 def admin_logout():
@@ -536,55 +556,63 @@ def payment_verify():
 
 @app.route('/subscribe', methods=['POST'])
 def subscribe():
-    email = request.form.get('email')
-    password = request.form.get('password')
-    subscription_type = request.form.get('subscription_type')
+    form = SubscriptionForm()
     
-    try:
-        db = get_db()
+    if form.validate_on_submit():
+        email = form.email.data
+        password = form.password.data
+        subscription_type = form.subscription_type.data
         
-        # Verifica se o usuário já existe
-        user = db.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
-        
-        if user:
-            flash('Este e-mail já está cadastrado', 'danger')
+        try:
+            db = get_db()
+            
+            # Verifica se o usuário já existe
+            user = db.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
+            
+            if user:
+                flash('Este e-mail já está cadastrado', 'danger')
+                return redirect(url_for('premium_subscription'))
+            
+            # Cria novo usuário
+            hashed_password = generate_password_hash(password)
+            db.execute('INSERT INTO users (email, password) VALUES (?, ?)',
+                      (email, hashed_password))
+            
+            user_id = db.lastrowid
+            payment_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            
+            # Define a data de expiração conforme o plano
+            if subscription_type == 'monthly':
+                expiry_date = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
+                payment_amount = '6.99'
+            else:
+                expiry_date = (datetime.now() + timedelta(days=365)).strftime('%Y-%m-%d')
+                payment_amount = '80.99'
+            
+            # Registra a assinatura como pendente
+            db.execute('''
+                INSERT INTO subscriptions (
+                    user_id, subscription_type, payment_amount, 
+                    payment_date, expiry_date
+                ) VALUES (?, ?, ?, ?, ?)
+            ''', (user_id, subscription_type, payment_amount, payment_date, expiry_date))
+            
+            db.commit()
+            
+            # Redireciona para o PagBank conforme o plano escolhido
+            return redirect(PAGBANK_LINKS[subscription_type])
+            
+        except Exception as e:
+            logger.error(f"Erro ao processar assinatura: {str(e)}")
+            flash('Erro ao processar assinatura', 'danger')
             return redirect(url_for('premium_subscription'))
-        
-        # Cria novo usuário
-        hashed_password = generate_password_hash(password)
-        db.execute('INSERT INTO users (email, password) VALUES (?, ?)',
-                  (email, hashed_password))
-        
-        user_id = db.lastrowid
-        payment_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        
-        # Define a data de expiração conforme o plano
-        if subscription_type == 'monthly':
-            expiry_date = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
-            payment_amount = '6.99'
-        else:
-            expiry_date = (datetime.now() + timedelta(days=365)).strftime('%Y-%m-%d')
-            payment_amount = '80.99'
-        
-        # Registra a assinatura como pendente
-        db.execute('''
-            INSERT INTO subscriptions (
-                user_id, subscription_type, payment_amount, 
-                payment_date, expiry_date
-            ) VALUES (?, ?, ?, ?, ?)
-        ''', (user_id, subscription_type, payment_amount, payment_date, expiry_date))
-        
-        db.commit()
-        
-        # Redireciona para o PagBank conforme o plano escolhido
-        return redirect(PAGBANK_LINKS[subscription_type])
-        
-    except Exception as e:
-        logger.error(f"Erro ao processar assinatura: {str(e)}")
-        flash('Erro ao processar assinatura', 'danger')
+        finally:
+            db.close()
+    else:
+        for field, errors in form.errors.items():
+            for error in errors:
+                flash(f"{field}: {error}", 'danger')
         return redirect(url_for('premium_subscription'))
-    finally:
-        db.close()
 
 @app.errorhandler(404)
 def page_not_found(e):
