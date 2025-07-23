@@ -11,29 +11,32 @@ from flask_wtf import FlaskForm
 from wtforms import StringField, PasswordField, HiddenField
 from wtforms.validators import DataRequired, Email
 
-# Basic configurations
+# Configurações básicas com CSRF habilitado
 app = Flask(__name__)
 
-# Security configurations - ESSENTIAL
-app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24).hex())
-app.config['WTF_CSRF_ENABLED'] = True
-app.config['WTF_CSRF_SECRET_KEY'] = os.environ.get('CSRF_SECRET_KEY', os.urandom(24).hex())
-app.config['SESSION_COOKIE_SECURE'] = True
-app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)
-app.config['TEMPLATES_AUTO_RELOAD'] = True
-app.config['DATABASE'] = os.path.join(app.instance_path, 'matches.db')
+# Configurações de segurança ESSENCIAIS - ATUALIZADAS
+app.config.update(
+    SECRET_KEY=os.environ.get('SECRET_KEY', os.urandom(32).hex()),
+    WTF_CSRF_ENABLED=True,
+    WTF_CSRF_SECRET_KEY=os.environ.get('CSRF_SECRET_KEY', os.urandom(32).hex()),
+    WTF_CSRF_TIME_LIMIT=3600,  # 1 hora de validade
+    SESSION_COOKIE_SECURE=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    PERMANENT_SESSION_LIFETIME=timedelta(minutes=30),
+    TEMPLATES_AUTO_RELOAD=True,
+    DATABASE=os.path.join(app.instance_path, 'matches.db')
+)
 
-# Initialize CSRF protection
+# Inicialização do CSRF - DEVE vir após a configuração
 csrf = CSRFProtect(app)
 
-# Payment links
+# Links de pagamento
 PAGBANK_LINKS = {
     'monthly': 'https://pag.ae/7_TnPtRxH',
     'yearly': 'https://pag.ae/7_TnQbYun'
 }
 
-# Form classes
+# Classes de formulário
 class SubscriptionForm(FlaskForm):
     email = StringField('Email', validators=[DataRequired(), Email()])
     password = PasswordField('Password', validators=[DataRequired()])
@@ -47,7 +50,7 @@ class AdminLoginForm(FlaskForm):
     username = StringField('Username', validators=[DataRequired()])
     password = PasswordField('Password', validators=[DataRequired()])
 
-# JSON Encoder
+# Codificador JSON
 class FlaskJSONEncoder(json.JSONEncoder):
     def default(self, o):
         if hasattr(o, '__html__'):
@@ -56,16 +59,16 @@ class FlaskJSONEncoder(json.JSONEncoder):
 
 app.json_encoder = FlaskJSONEncoder
 
-# Logging configuration
+# Configuração de logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Admin settings
+# Configurações de administrador
 ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'admin')
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin123premium')
 ADMIN_PASSWORD_HASH = generate_password_hash(ADMIN_PASSWORD)
 
-# Decorators
+# Decoradores
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -84,7 +87,7 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-# Database functions
+# Funções de banco de dados
 def get_db():
     db = sqlite3.connect(app.config['DATABASE'])
     db.row_factory = sqlite3.Row
@@ -96,6 +99,7 @@ def init_db():
         os.makedirs(app.instance_path, exist_ok=True)
         db = get_db()
         
+        # Código de criação de tabelas permanece o mesmo
         db.execute('''
             CREATE TABLE IF NOT EXISTS matches (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -173,11 +177,11 @@ def init_db():
     finally:
         db.close()
 
-# Initialize database
+# Inicialização do banco de dados
 with app.app_context():
     init_db()
 
-# Helper functions
+# Funções auxiliares
 def format_date(date_str):
     try:
         return datetime.strptime(date_str, '%Y-%m-%d').strftime('%d/%m/%Y')
@@ -207,7 +211,7 @@ def get_float_value(key, default=0.0):
     except ValueError:
         return default
 
-# Routes
+# Rotas
 @app.route('/')
 @login_required
 def index():
@@ -645,6 +649,14 @@ def page_not_found(e):
 @app.errorhandler(500)
 def internal_server_error(e):
     return render_template('error.html', message="Internal server error"), 500
+
+# Middleware para debug de CSRF
+@app.after_request
+def log_csrf(response):
+    if request.method == 'POST':
+        app.logger.debug(f"CSRF Token: {request.form.get('csrf_token')}")
+        app.logger.debug(f"Session CSRF: {session.get('csrf_token')}")
+    return response
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
