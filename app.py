@@ -17,7 +17,7 @@ app.config.update(
     SECRET_KEY=os.environ.get('SECRET_KEY', os.urandom(32).hex()),
     WTF_CSRF_ENABLED=True,
     WTF_CSRF_SECRET_KEY=os.environ.get('CSRF_SECRET_KEY', os.urandom(32).hex()),
-    WTF_CSRF_TIME_LIMIT=3600,  # 1 hora de validade
+    WTF_CSRF_TIME_LIMIT=3600,
     SESSION_COOKIE_SECURE=True,
     SESSION_COOKIE_SAMESITE='Lax',
     PERMANENT_SESSION_LIFETIME=timedelta(minutes=30),
@@ -237,75 +237,58 @@ def index():
 @app.route('/premium', methods=['GET', 'POST'])
 def premium_subscription():
     form = SubscriptionForm()
+    
     if form.validate_on_submit():
-        try:
-            return redirect(url_for('subscribe'))
-        except Exception as e:
-            logger.error(f"Subscription error: {str(e)}")
-            flash('Erro ao processar assinatura. Por favor, tente novamente.', 'danger')
+        email = form.email.data
+        password = form.password.data
+        subscription_type = form.subscription_type.data
+        
+        if subscription_type not in PAGBANK_LINKS:
+            flash('Tipo de assinatura inválido', 'danger')
             return redirect(url_for('premium_subscription'))
+        
+        db = get_db()
+        try:
+            user = db.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
+            
+            if user:
+                flash('Este email já está cadastrado. Por favor, faça login.', 'warning')
+                return redirect(url_for('user_login'))
+            
+            hashed_password = generate_password_hash(password)
+            db.execute('INSERT INTO users (email, password) VALUES (?, ?)', (email, hashed_password))
+            user_id = db.lastrowid
+            
+            payment_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            if subscription_type == 'monthly':
+                expiry_date = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
+                payment_amount = 6.99
+            else:
+                expiry_date = (datetime.now() + timedelta(days=365)).strftime('%Y-%m-%d')
+                payment_amount = 80.99
+            
+            db.execute('''
+                INSERT INTO subscriptions (
+                    user_id, subscription_type, payment_amount, 
+                    payment_date, expiry_date, status
+                ) VALUES (?, ?, ?, ?, ?, ?)
+            ''', (user_id, subscription_type, payment_amount, payment_date, expiry_date, 'pending'))
+            
+            db.commit()
+            
+            return redirect(PAGBANK_LINKS[subscription_type])
+            
+        except sqlite3.IntegrityError:
+            db.rollback()
+            flash('Erro ao criar conta. Este email já está em uso.', 'danger')
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Erro no processamento da assinatura: {str(e)}")
+            flash('Erro ao processar sua assinatura. Por favor, tente novamente.', 'danger')
+        finally:
+            db.close()
     
     return render_template('premium.html', form=form, pagbank_links=PAGBANK_LINKS)
-
-@app.route('/subscribe', methods=['POST'])
-def subscribe():
-    form = SubscriptionForm()
-    if not form.validate_on_submit():
-        for field, errors in form.errors.items():
-            for error in errors:
-                flash(f"{field}: {error}", 'danger')
-        return redirect(url_for('premium_subscription'))
-    
-    email = form.email.data
-    password = form.password.data
-    subscription_type = form.subscription_type.data
-    
-    if subscription_type not in PAGBANK_LINKS:
-        flash('Tipo de assinatura inválido', 'danger')
-        return redirect(url_for('premium_subscription'))
-    
-    db = get_db()
-    try:
-        user = db.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
-        
-        if user:
-            flash('Este email já está cadastrado. Por favor, faça login.', 'warning')
-            return redirect(url_for('user_login'))
-        
-        hashed_password = generate_password_hash(password)
-        db.execute('INSERT INTO users (email, password) VALUES (?, ?)', (email, hashed_password))
-        user_id = db.lastrowid
-        
-        payment_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        if subscription_type == 'monthly':
-            expiry_date = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
-            payment_amount = 6.99
-        else:
-            expiry_date = (datetime.now() + timedelta(days=365)).strftime('%Y-%m-%d')
-            payment_amount = 80.99
-        
-        db.execute('''
-            INSERT INTO subscriptions (
-                user_id, subscription_type, payment_amount, 
-                payment_date, expiry_date, status
-            ) VALUES (?, ?, ?, ?, ?, ?)
-        ''', (user_id, subscription_type, payment_amount, payment_date, expiry_date, 'pending'))
-        
-        db.commit()
-        
-        return redirect(PAGBANK_LINKS[subscription_type])
-        
-    except sqlite3.IntegrityError:
-        db.rollback()
-        flash('Erro ao criar conta. Este email já está em uso.', 'danger')
-        return redirect(url_for('premium_subscription'))
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Erro no processamento da assinatura: {str(e)}")
-        flash('Erro ao processar sua assinatura. Por favor, tente novamente.', 'danger')
-        return redirect(url_for('premium_subscription'))
-    finally:
-        db.close()
 
 @app.route('/login', methods=['GET', 'POST'])
 def user_login():
@@ -617,13 +600,6 @@ def page_not_found(e):
 def internal_server_error(e):
     return render_template('error.html', message="Internal server error"), 500
 
-@app.after_request
-def log_csrf(response):
-    if request.method == 'POST':
-        app.logger.debug(f"CSRF Token: {request.form.get('csrf_token')}")
-        app.logger.debug(f"Session CSRF: {session.get('csrf_token')}")
-    return response
-
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(host='0.0.0.0', port=port, debug=True)
