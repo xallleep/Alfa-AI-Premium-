@@ -18,7 +18,7 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.config['WTF_CSRF_ENABLED'] = True
 
-# Solução definitiva para o erro do JSONEncoder
+# Solução para o JSONEncoder
 class FlaskJSONEncoder(json.JSONEncoder):
     def default(self, o):
         if hasattr(o, '__html__'):
@@ -247,7 +247,7 @@ def admin_login():
         else:
             flash('Credenciais de administrador incorretas', 'danger')
     
-    return render_template('admin_login.html')
+    return render_template('admin_logim.html')  # Nome do template corrigido conforme seu aviso
 
 @app.route('/admin/logout')
 def admin_logout():
@@ -265,7 +265,7 @@ def admin_dashboard():
     try:
         db = get_db()
         matches = db.execute('SELECT * FROM matches ORDER BY match_date, match_time').fetchall()
-        return render_template('dashboard.html', matches=matches)
+        return render_template('admin/dashboard.html', matches=matches)
     except Exception as e:
         logger.error(f"Erro no dashboard admin: {str(e)}")
         return render_template('error.html', message="Erro ao carregar dashboard"), 500
@@ -435,7 +435,7 @@ def edit_match(match_id):
             flash('Partida não encontrada', 'danger')
             return redirect(url_for('admin_dashboard'))
             
-        return render_template('edit_match.html', match=match)
+        return render_template('admin/edit_match.html', match=match)
     except Exception as e:
         logger.error(f"Erro ao editar partida: {str(e)}")
         flash('Erro ao editar partida', 'danger')
