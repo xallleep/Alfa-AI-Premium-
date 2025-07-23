@@ -4,4 +4,4 @@ python-dotenv==1.0.0
 gunicorn==20.1.0
 Flask-WTF==1.0.0
 WTForms==3.0.1
-pagseguro==3.0.0
+pagseguro==0.3.4
