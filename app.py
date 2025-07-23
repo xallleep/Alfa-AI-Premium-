@@ -13,14 +13,19 @@ from wtforms.validators import DataRequired, Email
 
 # Basic configurations
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24))
-app.config['DATABASE'] = os.path.join(app.instance_path, 'matches.db')
+
+# Security configurations - ESSENTIAL
+app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24).hex())
+app.config['WTF_CSRF_ENABLED'] = True
+app.config['WTF_CSRF_SECRET_KEY'] = os.environ.get('CSRF_SECRET_KEY', os.urandom(24).hex())
 app.config['SESSION_COOKIE_SECURE'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)
 app.config['TEMPLATES_AUTO_RELOAD'] = True
-app.config['WTF_CSRF_ENABLED'] = True
-app.config['WTF_CSRF_SECRET_KEY'] = os.environ.get('CSRF_SECRET_KEY', os.urandom(24))
+app.config['DATABASE'] = os.path.join(app.instance_path, 'matches.db')
+
+# Initialize CSRF protection
+csrf = CSRFProtect(app)
 
 # Payment links
 PAGBANK_LINKS = {
@@ -28,7 +33,7 @@ PAGBANK_LINKS = {
     'yearly': 'https://pag.ae/7_TnQbYun'
 }
 
-# Form classes with CSRF protection
+# Form classes
 class SubscriptionForm(FlaskForm):
     email = StringField('Email', validators=[DataRequired(), Email()])
     password = PasswordField('Password', validators=[DataRequired()])
@@ -50,9 +55,6 @@ class FlaskJSONEncoder(json.JSONEncoder):
         return super().default(o)
 
 app.json_encoder = FlaskJSONEncoder
-
-# CSRF Protection
-csrf = CSRFProtect(app)
 
 # Logging configuration
 logging.basicConfig(level=logging.INFO)
