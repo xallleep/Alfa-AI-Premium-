@@ -5,16 +5,14 @@ import sqlite3
 from werkzeug.security import generate_password_hash, check_password_hash
 import logging
 from functools import wraps
-from flask_wtf import CSRFProtect
-import json
-from flask_wtf import FlaskForm
+from flask_wtf import CSRFProtect, FlaskForm
 from wtforms import StringField, PasswordField, HiddenField
 from wtforms.validators import DataRequired, Email
+import json
 
 # Configurações básicas com CSRF habilitado
 app = Flask(__name__)
 
-# Configurações de segurança ESSENCIAIS - ATUALIZADAS
 app.config.update(
     SECRET_KEY=os.environ.get('SECRET_KEY', os.urandom(32).hex()),
     WTF_CSRF_ENABLED=True,
@@ -27,16 +25,13 @@ app.config.update(
     DATABASE=os.path.join(app.instance_path, 'matches.db')
 )
 
-# Inicialização do CSRF - DEVE vir após a configuração
 csrf = CSRFProtect(app)
 
-# Links de pagamento
 PAGBANK_LINKS = {
     'monthly': 'https://pag.ae/7_TnPtRxH',
     'yearly': 'https://pag.ae/7_TnQbYun'
 }
 
-# Classes de formulário
 class SubscriptionForm(FlaskForm):
     email = StringField('Email', validators=[DataRequired(), Email()])
     password = PasswordField('Password', validators=[DataRequired()])
@@ -50,7 +45,6 @@ class AdminLoginForm(FlaskForm):
     username = StringField('Username', validators=[DataRequired()])
     password = PasswordField('Password', validators=[DataRequired()])
 
-# Codificador JSON
 class FlaskJSONEncoder(json.JSONEncoder):
     def default(self, o):
         if hasattr(o, '__html__'):
@@ -63,12 +57,10 @@ app.json_encoder = FlaskJSONEncoder
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Configurações de administrador
 ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'admin')
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin123premium')
 ADMIN_PASSWORD_HASH = generate_password_hash(ADMIN_PASSWORD)
 
-# Decoradores
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -87,7 +79,6 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-# Funções de banco de dados
 def get_db():
     db = sqlite3.connect(app.config['DATABASE'])
     db.row_factory = sqlite3.Row
@@ -95,11 +86,10 @@ def get_db():
     return db
 
 def init_db():
+    db = None
     try:
         os.makedirs(app.instance_path, exist_ok=True)
         db = get_db()
-        
-        # Código de criação de tabelas permanece o mesmo
         db.execute('''
             CREATE TABLE IF NOT EXISTS matches (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -142,7 +132,6 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
-        
         db.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -153,7 +142,6 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
-        
         db.execute('''
             CREATE TABLE IF NOT EXISTS subscriptions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -168,24 +156,22 @@ def init_db():
                 FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
             )
         ''')
-        
         db.commit()
         logger.info("Database initialized successfully")
     except Exception as e:
         logger.error(f"Error initializing database: {str(e)}")
         flash('Database initialization error', 'danger')
     finally:
-        db.close()
+        if db:
+            db.close()
 
-# Inicialização do banco de dados
 with app.app_context():
     init_db()
 
-# Funções auxiliares
 def format_date(date_str):
     try:
         return datetime.strptime(date_str, '%Y-%m-%d').strftime('%d/%m/%Y')
-    except ValueError:
+    except (ValueError, TypeError):
         return date_str
 
 def check_premium_status(user_id):
@@ -202,16 +188,18 @@ def check_premium_status(user_id):
 
 def get_numeric_value(key, default=0):
     value = request.form.get(key)
-    return int(value) if value and value.isdigit() else default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 def get_float_value(key, default=0.0):
     value = request.form.get(key)
     try:
-        return float(value) if value else default
-    except ValueError:
+        return float(value)
+    except (TypeError, ValueError):
         return default
 
-# Rotas
 @app.route('/')
 @login_required
 def index():
@@ -219,33 +207,27 @@ def index():
         db = get_db()
         today = datetime.now().strftime('%Y-%m-%d')
         next_week = (datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d')
-        
         matches = db.execute('''
             SELECT * FROM matches 
             WHERE match_date BETWEEN ? AND ?
             ORDER BY display_order, match_date, match_time
         ''', (today, next_week)).fetchall()
-        
         today_matches = []
         other_matches = []
-        
         for m in matches:
             match = dict(m)
             match['is_today'] = match['match_date'] == today
             match['formatted_date'] = format_date(match['match_date'])
-            
             if match['is_today']:
                 today_matches.append(match)
             else:
                 other_matches.append(match)
-        
         last_updated = datetime.now().strftime('%d/%m/%Y às %H:%M')
-        
         return render_template('index.html',
-                            today_matches=today_matches,
-                            other_matches=other_matches,
-                            last_updated=last_updated,
-                            is_premium=session.get('is_premium', False))
+                              today_matches=today_matches,
+                              other_matches=other_matches,
+                              last_updated=last_updated,
+                              is_premium=session.get('is_premium', False))
     except Exception as e:
         logger.error(f"Error in index route: {str(e)}")
         return render_template('error.html', message="Error loading data"), 500
@@ -265,11 +247,9 @@ def user_login():
     if form.validate_on_submit():
         email = form.email.data
         password = form.password.data
-        
+        db = get_db()
         try:
-            db = get_db()
             user = db.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
-            
             if user and check_password_hash(user['password'], password):
                 session['logged_in'] = True
                 session['user_id'] = user['id']
@@ -283,7 +263,6 @@ def user_login():
             flash('Login error', 'danger')
         finally:
             db.close()
-    
     return render_template('login.html', form=form)
 
 @app.route('/logout')
@@ -298,14 +277,12 @@ def admin_login():
     if form.validate_on_submit():
         username = form.username.data
         password = form.password.data
-        
         if username == ADMIN_USERNAME and check_password_hash(ADMIN_PASSWORD_HASH, password):
             session['admin_logged_in'] = True
             flash('Admin login successful!', 'success')
             return redirect(url_for('admin_dashboard'))
         else:
             flash('Incorrect admin credentials', 'danger')
-    
     return render_template('admin_login.html', form=form)
 
 @app.route('/admin/logout')
@@ -335,18 +312,15 @@ def admin_dashboard():
 @admin_required
 def add_match():
     if request.method == 'POST':
+        db = get_db()
         try:
-            db = get_db()
-            
             home_team = request.form.get('home_team', '').strip()
             away_team = request.form.get('away_team', '').strip()
             match_date = request.form.get('match_date', '').strip()
             match_time = request.form.get('match_time', '').strip()
-            
             if not home_team or not away_team or not match_date or not match_time:
                 flash('Fill all required fields', 'danger')
                 return redirect(url_for('add_match'))
-            
             db.execute('''
                 INSERT INTO matches (
                     home_team, away_team, competition, location, 
@@ -360,7 +334,7 @@ def add_match():
                     shots_off_target_away, fouls_home, fouls_away, offsides_home,
                     offsides_away, safe_prediction, risk_prediction, details,
                     display_order, color_scheme
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ''', (
                 home_team,
                 away_team,
@@ -409,15 +383,13 @@ def add_match():
             return redirect(url_for('add_match'))
         finally:
             db.close()
-    
     return render_template('admin/add_match.html')
 
 @app.route('/admin/match/edit/<int:match_id>', methods=['GET', 'POST'])
 @admin_required
 def edit_match(match_id):
+    db = get_db()
     try:
-        db = get_db()
-        
         if request.method == 'POST':
             db.execute('''
                 UPDATE matches SET
@@ -500,12 +472,10 @@ def edit_match(match_id):
             db.commit()
             flash('Match updated successfully!', 'success')
             return redirect(url_for('admin_dashboard'))
-        
         match = db.execute('SELECT * FROM matches WHERE id = ?', (match_id,)).fetchone()
         if not match:
             flash('Match not found', 'danger')
             return redirect(url_for('admin_dashboard'))
-            
         return render_template('admin/edit_match.html', match=match)
     except Exception as e:
         logger.error(f"Error editing match: {str(e)}")
@@ -517,8 +487,8 @@ def edit_match(match_id):
 @app.route('/admin/match/delete/<int:match_id>', methods=['POST'])
 @admin_required
 def delete_match(match_id):
+    db = get_db()
     try:
-        db = get_db()
         db.execute('DELETE FROM matches WHERE id = ?', (match_id,))
         db.commit()
         flash('Match deleted successfully', 'success')
@@ -533,15 +503,12 @@ def delete_match(match_id):
 def payment_verify():
     if request.method == 'POST':
         email = request.form.get('email')
-        
+        db = get_db()
         try:
-            db = get_db()
             user = db.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
-            
             if not user:
                 flash('Email not found', 'danger')
                 return redirect(url_for('payment_verify'))
-            
             recent_payments = db.execute('''
                 SELECT * FROM subscriptions 
                 WHERE user_id = ? 
@@ -549,7 +516,6 @@ def payment_verify():
                 ORDER BY payment_date DESC
                 LIMIT 1
             ''', (user['id'],)).fetchone()
-            
             if recent_payments:
                 db.execute('''
                     UPDATE users SET 
@@ -557,78 +523,60 @@ def payment_verify():
                         premium_expiry = ?
                     WHERE id = ?
                 ''', (recent_payments['expiry_date'], user['id']))
-                
                 db.execute('''
                     UPDATE subscriptions SET 
                         is_active = 1,
                         status = 'completed'
                     WHERE id = ?
                 ''', (recent_payments['id'],))
-                
                 db.commit()
-                
                 flash('Payment confirmed! Premium access activated.', 'success')
                 return redirect(url_for('index'))
             else:
                 flash('No recent payment found for this email', 'warning')
                 return redirect(url_for('payment_verify'))
-                
         except Exception as e:
             logger.error(f"Payment verification error: {str(e)}")
             flash('Payment verification error', 'danger')
             return redirect(url_for('payment_verify'))
         finally:
             db.close()
-    
     return render_template('payment_verify.html')
 
 @app.route('/subscribe', methods=['POST'])
 def subscribe():
     form = SubscriptionForm()
-    
     if form.validate_on_submit():
         email = form.email.data
         password = form.password.data
         subscription_type = form.subscription_type.data
-        
         if subscription_type not in ['monthly', 'yearly']:
             flash('Invalid subscription type', 'danger')
             return redirect(url_for('premium_subscription'))
-            
+        db = get_db()
         try:
-            db = get_db()
-            
             user = db.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
-            
             if user:
                 flash('Email already registered', 'danger')
                 return redirect(url_for('premium_subscription'))
-            
             hashed_password = generate_password_hash(password)
-            db.execute('INSERT INTO users (email, password) VALUES (?, ?)',
-                      (email, hashed_password))
-            
-            user_id = db.lastrowid
+            db.execute('INSERT INTO users (email, password) VALUES (?, ?)', (email, hashed_password))
+            user_id = db.execute('SELECT last_insert_rowid()').fetchone()[0]
             payment_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            
             if subscription_type == 'monthly':
                 expiry_date = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
                 payment_amount = 6.99
             else:
                 expiry_date = (datetime.now() + timedelta(days=365)).strftime('%Y-%m-%d')
                 payment_amount = 80.99
-            
             db.execute('''
                 INSERT INTO subscriptions (
                     user_id, subscription_type, payment_amount, 
                     payment_date, expiry_date, status
                 ) VALUES (?, ?, ?, ?, ?, ?)
             ''', (user_id, subscription_type, payment_amount, payment_date, expiry_date, 'pending'))
-            
             db.commit()
-            
             return redirect(PAGBANK_LINKS[subscription_type])
-            
         except Exception as e:
             db.rollback()
             logger.error(f"Subscription error: {str(e)}")
@@ -650,7 +598,6 @@ def page_not_found(e):
 def internal_server_error(e):
     return render_template('error.html', message="Internal server error"), 500
 
-# Middleware para debug de CSRF
 @app.after_request
 def log_csrf(response):
     if request.method == 'POST':
