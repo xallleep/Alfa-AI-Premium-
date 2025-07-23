@@ -239,7 +239,7 @@ def premium_subscription():
     form = SubscriptionForm()
     if form.validate_on_submit():
         try:
-            return redirect(url_for('process_subscription'))
+            return redirect(url_for('subscribe'))
         except Exception as e:
             logger.error(f"Subscription error: {str(e)}")
             flash('Erro ao processar assinatura. Por favor, tente novamente.', 'danger')
@@ -247,8 +247,8 @@ def premium_subscription():
     
     return render_template('premium.html', form=form, pagbank_links=PAGBANK_LINKS)
 
-@app.route('/process-subscription', methods=['POST'])
-def process_subscription():
+@app.route('/subscribe', methods=['POST'])
+def subscribe():
     form = SubscriptionForm()
     if not form.validate_on_submit():
         for field, errors in form.errors.items():
@@ -266,19 +266,16 @@ def process_subscription():
     
     db = get_db()
     try:
-        # Verificar se o usuário já existe
         user = db.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
         
         if user:
             flash('Este email já está cadastrado. Por favor, faça login.', 'warning')
             return redirect(url_for('user_login'))
         
-        # Criar novo usuário
         hashed_password = generate_password_hash(password)
         db.execute('INSERT INTO users (email, password) VALUES (?, ?)', (email, hashed_password))
         user_id = db.lastrowid
         
-        # Definir datas e valores
         payment_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         if subscription_type == 'monthly':
             expiry_date = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
@@ -287,7 +284,6 @@ def process_subscription():
             expiry_date = (datetime.now() + timedelta(days=365)).strftime('%Y-%m-%d')
             payment_amount = 80.99
         
-        # Criar registro de assinatura
         db.execute('''
             INSERT INTO subscriptions (
                 user_id, subscription_type, payment_amount, 
@@ -297,7 +293,6 @@ def process_subscription():
         
         db.commit()
         
-        # Redirecionar para o PagBank
         return redirect(PAGBANK_LINKS[subscription_type])
         
     except sqlite3.IntegrityError:
