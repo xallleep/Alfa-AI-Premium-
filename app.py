@@ -8,71 +8,61 @@ from functools import wraps
 from flask_wtf import CSRFProtect
 from wtforms import Form, StringField, PasswordField, HiddenField, validators
 
-# Configuração básica do Flask
+# Configuração básica do aplicativo
 app = Flask(__name__)
 app.config.update(
-    SECRET_KEY=os.environ.get('SECRET_KEY', 'dev-key-123456'),
-    WTF_CSRF_SECRET_KEY=os.environ.get('CSRF_SECRET_KEY', 'csrf-dev-key-123456'),
-    DATABASE=os.path.join(app.instance_path, 'matches.db'),
+    SECRET_KEY=os.environ.get('SECRET_KEY', 'uma-chave-secreta-muito-segura-123'),
+    WTF_CSRF_SECRET_KEY=os.environ.get('CSRF_SECRET_KEY', 'outra-chave-secreta-csrf-456'),
+    DATABASE=os.path.join(app.instance_path, 'database.db'),
     SESSION_COOKIE_SECURE=True,
-    SESSION_COOKIE_SAMESITE='Lax'
+    SESSION_COOKIE_SAMESITE='Lax',
+    PERMANENT_SESSION_LIFETIME=timedelta(minutes=30)
 )
 
 csrf = CSRFProtect(app)
-
-# Configuração de logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Links de pagamento
+# Configurações
 PAGBANK_LINKS = {
     'monthly': 'https://pag.ae/7_TnPtRxH',
     'yearly': 'https://pag.ae/7_TnQbYun'
 }
 
-# Configurações de administrador
 ADMIN_CREDENTIALS = {
     'username': os.environ.get('ADMIN_USERNAME', 'admin'),
-    'password_hash': generate_password_hash(os.environ.get('ADMIN_PASSWORD', 'admin123'))
+    'password': generate_password_hash(os.environ.get('ADMIN_PASSWORD', 'senha-admin-secreta'))
 }
 
-# Classes de formulário
+# Formulários
 class SubscriptionForm(Form):
-    email = StringField('Email', [
-        validators.DataRequired(),
-        validators.Email(),
-        validators.Length(min=6, max=50)
+    email = StringField('Email', validators=[
+        validators.DataRequired(message="Email é obrigatório"),
+        validators.Email(message="Email inválido"),
+        validators.Length(min=6, max=50, message="Email deve ter entre 6 e 50 caracteres")
     ])
-    password = PasswordField('Password', [
-        validators.DataRequired(),
-        validators.Length(min=6)
+    password = PasswordField('Senha', validators=[
+        validators.DataRequired(message="Senha é obrigatória"),
+        validators.Length(min=6, message="Senha deve ter no mínimo 6 caracteres")
     ])
-    subscription_type = HiddenField('Subscription Type', [
-        validators.DataRequired()
+    subscription_type = HiddenField('Tipo de Assinatura', validators=[
+        validators.DataRequired(message="Tipo de assinatura é obrigatório")
     ])
 
 class LoginForm(Form):
-    email = StringField('Email', [
+    email = StringField('Email', validators=[
         validators.DataRequired(),
         validators.Email()
     ])
-    password = PasswordField('Password', [
+    password = PasswordField('Senha', validators=[
         validators.DataRequired()
     ])
 
-class AdminLoginForm(Form):
-    username = StringField('Username', [
-        validators.DataRequired()
-    ])
-    password = PasswordField('Password', [
-        validators.DataRequired()
-    ])
-
-# Funções de banco de dados
+# Database Helper
 def get_db():
     db = sqlite3.connect(app.config['DATABASE'])
     db.row_factory = sqlite3.Row
-    db.execute('PRAGMA foreign_keys = ON')
+    db.execute("PRAGMA foreign_keys = ON")
     return db
 
 def init_db():
@@ -80,7 +70,6 @@ def init_db():
         os.makedirs(app.instance_path, exist_ok=True)
         db = get_db()
         try:
-            # Tabela de usuários
             db.execute('''
                 CREATE TABLE IF NOT EXISTS users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -92,7 +81,6 @@ def init_db():
                 )
             ''')
             
-            # Tabela de assinaturas
             db.execute('''
                 CREATE TABLE IF NOT EXISTS subscriptions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -101,24 +89,22 @@ def init_db():
                     payment_amount REAL NOT NULL,
                     payment_date TEXT NOT NULL,
                     expiry_date TEXT NOT NULL,
-                    is_active BOOLEAN DEFAULT 1,
+                    is_active BOOLEAN DEFAULT 0,
                     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
                 )
             ''')
             
-            # Tabela de partidas
             db.execute('''
                 CREATE TABLE IF NOT EXISTS matches (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     home_team TEXT NOT NULL,
                     away_team TEXT NOT NULL,
-                    competition TEXT,
                     match_date TEXT NOT NULL,
                     match_time TEXT NOT NULL,
                     predicted_score TEXT,
-                    home_win_percent INTEGER DEFAULT 0,
-                    away_win_percent INTEGER DEFAULT 0,
-                    draw_percent INTEGER DEFAULT 0,
+                    home_win_percent INTEGER,
+                    away_win_percent INTEGER,
+                    draw_percent INTEGER,
                     details TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -126,7 +112,7 @@ def init_db():
             
             db.commit()
         except Exception as e:
-            logger.error(f"Database initialization error: {e}")
+            logger.error(f"Erro ao inicializar banco de dados: {e}")
             db.rollback()
         finally:
             db.close()
@@ -138,8 +124,17 @@ def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if not session.get('logged_in'):
-            flash('Por favor, faça login para acessar esta página', 'danger')
+            flash('Você precisa fazer login para acessar esta página', 'warning')
             return redirect(url_for('user_login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+def premium_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get('is_premium'):
+            flash('Você precisa ser assinante premium para acessar este conteúdo', 'danger')
+            return redirect(url_for('premium_subscription'))
         return f(*args, **kwargs)
     return decorated_function
 
@@ -152,9 +147,9 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-# Rotas públicas
+# Rotas Públicas
 @app.route('/')
-def index():
+def home():
     return redirect(url_for('premium_subscription'))
 
 @app.route('/premium', methods=['GET', 'POST'])
@@ -165,16 +160,19 @@ def premium_subscription():
         db = None
         try:
             db = get_db()
-            email = form.email.data
+            email = form.email.data.lower().strip()
             password = form.password.data
             subscription_type = form.subscription_type.data
             
-            # Verifica se o usuário já existe
+            if subscription_type not in PAGBANK_LINKS:
+                flash('Tipo de assinatura inválido', 'danger')
+                return redirect(url_for('premium_subscription'))
+            
+            # Verifica se usuário já existe
             user = db.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
             
             if user:
                 if check_password_hash(user['password'], password):
-                    # Login bem-sucedido
                     session['user_id'] = user['id']
                     session['logged_in'] = True
                     session['is_premium'] = bool(user['is_premium'])
@@ -188,7 +186,7 @@ def premium_subscription():
             db.execute('INSERT INTO users (email, password) VALUES (?, ?)', (email, hashed_pw))
             user_id = db.lastrowid
             
-            # Configura a assinatura
+            # Configura assinatura
             payment_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             if subscription_type == 'monthly':
                 expiry_date = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
@@ -205,21 +203,22 @@ def premium_subscription():
             
             db.commit()
             
-            # Configura a sessão
             session['user_id'] = user_id
             session['logged_in'] = True
             session['is_premium'] = False
             
             return redirect(PAGBANK_LINKS[subscription_type])
             
+        except sqlite3.IntegrityError:
+            flash('Este email já está cadastrado', 'danger')
         except Exception as e:
-            if db:
-                db.rollback()
-            logger.error(f"Subscription error: {e}")
-            flash('Ocorreu um erro ao processar sua assinatura. Por favor, tente novamente.', 'danger')
+            logger.error(f"Erro na assinatura: {e}")
+            flash('Ocorreu um erro ao processar sua assinatura', 'danger')
         finally:
             if db:
                 db.close()
+    elif request.method == 'POST':
+        flash('Por favor, corrija os erros no formulário', 'danger')
     
     return render_template('premium.html', form=form)
 
@@ -231,18 +230,22 @@ def user_login():
         db = None
         try:
             db = get_db()
-            user = db.execute('SELECT * FROM users WHERE email = ?', (form.email.data,)).fetchone()
+            email = form.email.data.lower().strip()
+            user = db.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
             
             if user and check_password_hash(user['password'], form.password.data):
                 session['user_id'] = user['id']
                 session['logged_in'] = True
                 session['is_premium'] = bool(user['is_premium'])
                 flash('Login realizado com sucesso!', 'success')
-                return redirect(url_for('premium_matches'))
+                
+                if session['is_premium']:
+                    return redirect(url_for('premium_matches'))
+                return redirect(url_for('payment_verify'))
             else:
                 flash('Email ou senha incorretos', 'danger')
         except Exception as e:
-            logger.error(f"Login error: {e}")
+            logger.error(f"Erro no login: {e}")
             flash('Ocorreu um erro durante o login', 'danger')
         finally:
             if db:
@@ -253,48 +256,17 @@ def user_login():
 @app.route('/logout')
 def logout():
     session.clear()
-    flash('Você foi desconectado', 'info')
-    return redirect(url_for('index'))
+    flash('Você foi desconectado com sucesso', 'info')
+    return redirect(url_for('home'))
 
-# Rotas de administração
-@app.route('/admin/login', methods=['GET', 'POST'])
-def admin_login():
-    form = AdminLoginForm(request.form)
-    
-    if request.method == 'POST' and form.validate():
-        if (form.username.data == ADMIN_CREDENTIALS['username'] and 
-            check_password_hash(ADMIN_CREDENTIALS['password_hash'], form.password.data)):
-            session['admin_logged_in'] = True
-            return redirect(url_for('admin_dashboard'))
-        else:
-            flash('Credenciais de administrador inválidas', 'danger')
-    
-    return render_template('admin_login.html', form=form)
-
-@app.route('/admin/dashboard')
-@admin_required
-def admin_dashboard():
-    db = None
-    try:
-        db = get_db()
-        matches = db.execute('SELECT * FROM matches ORDER BY match_date DESC').fetchall()
-        users = db.execute('SELECT * FROM users ORDER BY created_at DESC').fetchall()
-        return render_template('admin/dashboard.html', matches=matches, users=users)
-    except Exception as e:
-        logger.error(f"Admin dashboard error: {e}")
-        flash('Erro ao carregar o painel de administração', 'danger')
-        return redirect(url_for('admin_login'))
-    finally:
-        if db:
-            db.close()
-
-# ... (adicionar outras rotas de admin conforme necessário)
-
-# Rotas de pagamento
 @app.route('/payment/verify', methods=['GET', 'POST'])
 def payment_verify():
     if request.method == 'POST':
-        email = request.form.get('email')
+        email = request.form.get('email', '').strip().lower()
+        if not email:
+            flash('Por favor, informe seu email', 'danger')
+            return redirect(url_for('payment_verify'))
+        
         db = None
         try:
             db = get_db()
@@ -326,48 +298,93 @@ def payment_verify():
                 ''', (subscription['id'],))
                 
                 db.commit()
-                session['is_premium'] = True
+                
+                if session.get('user_id') == user['id']:
+                    session['is_premium'] = True
+                
                 flash('Pagamento verificado com sucesso! Acesso premium ativado.', 'success')
                 return redirect(url_for('premium_matches'))
             else:
                 flash('Nenhuma assinatura encontrada para este email', 'warning')
         except Exception as e:
-            if db:
-                db.rollback()
-            logger.error(f"Payment verification error: {e}")
-            flash('Erro ao verificar pagamento', 'danger')
+            logger.error(f"Erro na verificação: {e}")
+            flash('Ocorreu um erro ao verificar seu pagamento', 'danger')
         finally:
             if db:
                 db.close()
     
     return render_template('payment_verify.html')
 
-# Rotas de conteúdo premium
+# Rotas Premium
 @app.route('/premium/matches')
 @login_required
+@premium_required
 def premium_matches():
-    if not session.get('is_premium'):
-        flash('Você precisa ser assinante premium para acessar este conteúdo', 'warning')
-        return redirect(url_for('premium_subscription'))
-    
     db = None
     try:
         db = get_db()
+        today = datetime.now().strftime('%Y-%m-%d')
         matches = db.execute('''
             SELECT * FROM matches 
-            WHERE match_date >= date('now') 
-            ORDER BY match_date ASC
-        ''').fetchall()
+            WHERE match_date >= ?
+            ORDER BY match_date ASC, match_time ASC
+        ''', (today,)).fetchall()
+        
         return render_template('premium_matches.html', matches=matches)
     except Exception as e:
-        logger.error(f"Matches error: {e}")
-        flash('Erro ao carregar as partidas', 'danger')
-        return redirect(url_for('index'))
+        logger.error(f"Erro ao carregar partidas: {e}")
+        flash('Ocorreu um erro ao carregar as partidas', 'danger')
+        return redirect(url_for('home'))
     finally:
         if db:
             db.close()
 
-# Inicialização
+# Rotas Admin
+@app.route('/admin/login', methods=['GET', 'POST'])
+def admin_login():
+    if session.get('admin_logged_in'):
+        return redirect(url_for('admin_dashboard'))
+    
+    form = AdminLoginForm(request.form)
+    
+    if request.method == 'POST' and form.validate():
+        username = form.username.data.strip()
+        password = form.password.data
+        
+        if (username == ADMIN_CREDENTIALS['username'] and 
+            check_password_hash(ADMIN_CREDENTIALS['password'], password)):
+            session['admin_logged_in'] = True
+            return redirect(url_for('admin_dashboard'))
+        else:
+            flash('Credenciais de administrador inválidas', 'danger')
+    
+    return render_template('admin_login.html', form=form)
+
+@app.route('/admin/dashboard')
+@admin_required
+def admin_dashboard():
+    db = None
+    try:
+        db = get_db()
+        users_count = db.execute('SELECT COUNT(*) FROM users').fetchone()[0]
+        matches_count = db.execute('SELECT COUNT(*) FROM matches').fetchone()[0]
+        return render_template('admin/dashboard.html', 
+                             users_count=users_count, 
+                             matches_count=matches_count)
+    except Exception as e:
+        logger.error(f"Erro no painel admin: {e}")
+        flash('Ocorreu um erro no painel de administração', 'danger')
+        return redirect(url_for('admin_login'))
+    finally:
+        if db:
+            db.close()
+
+@app.route('/admin/logout')
+def admin_logout():
+    session.pop('admin_logged_in', None)
+    flash('Logout de administrador realizado', 'info')
+    return redirect(url_for('home'))
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
