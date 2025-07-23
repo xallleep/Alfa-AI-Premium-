@@ -4,10 +4,21 @@
 <div class="row justify-content-center">
     <div class="col-lg-10">
         <div class="text-center mb-5">
-            <h1 class="fw-bold">Assinatura Premium</h1>
-            <p class="lead">Acesso completo às melhores previsões de futebol com inteligência artificial</p>
+            <h1 class="fw-bold">Assinatura Premium Obrigatória</h1>
+            <p class="lead">Para acessar todas as previsões de futebol com inteligência artificial</p>
         </div>
-        
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }} alert-dismissible fade show">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
         <div class="row g-4">
             <!-- Plano Mensal -->
             <div class="col-md-6">
@@ -15,28 +26,27 @@
                     <div class="card-header bg-premium text-white text-center py-3">
                         <h3 class="mb-0">Plano Mensal</h3>
                     </div>
-                    <div class="card-body text-center">
-                        <h2 class="fw-bold my-4">R$6,99 <small class="text-muted fs-6">/mês</small></h2>
-                        <ul class="list-unstyled mb-4">
-                            <li class="mb-3"><i class="bi bi-check-circle-fill text-premium me-2"></i> Todas as previsões de jogos</li>
-                            <li class="mb-3"><i class="bi bi-check-circle-fill text-premium me-2"></i> Estatísticas avançadas</li>
-                            <li class="mb-3"><i class="bi bi-check-circle-fill text-premium me-2"></i> Previsão de cartões e escanteios</li>
-                            <li class="mb-3"><i class="bi bi-check-circle-fill text-premium me-2"></i> Análises detalhadas</li>
-                            <li class="mb-3"><i class="bi bi-check-circle-fill text-premium me-2"></i> Experiência sem anúncios</li>
-                        </ul>
-                    </div>
-                    <div class="card-footer bg-transparent border-0 pb-4 text-center">
-                        <form method="POST" action="{{ url_for('subscribe') }}">
+                    <div class="card-body">
+                        <form method="POST" action="{{ url_for('premium_subscription') }}">
+                            {{ form.csrf_token() }}
                             <input type="hidden" name="subscription_type" value="monthly">
-                            <button type="submit" class="btn btn-premium btn-lg px-5">
-                                Assinar Mensalmente
+                            <div class="mb-3">
+                                <label for="email" class="form-label">Email</label>
+                                <input type="email" class="form-control" id="email" name="email" required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="password" class="form-label">Senha</label>
+                                <input type="password" class="form-control" id="password" name="password" required>
+                            </div>
+                            <button type="submit" class="btn btn-premium btn-lg w-100">
+                                Assinar Mensalmente por R$6,99
                             </button>
                         </form>
                     </div>
                 </div>
             </div>
-            
-            <!-- Plano Anual (Melhor oferta) -->
+
+            <!-- Plano Anual -->
             <div class="col-md-6">
                 <div class="card h-100 border-warning">
                     <div class="card-header bg-warning text-dark text-center py-3 position-relative">
@@ -45,55 +55,30 @@
                             Melhor oferta!
                         </span>
                     </div>
-                    <div class="card-body text-center">
-                        <h2 class="fw-bold my-4">R$80,99 <small class="text-muted fs-6">/ano</small></h2>
-                        <p class="text-success fw-bold mb-4">
-                            <i class="bi bi-arrow-down"></i> Economize 15% comparado ao plano mensal
-                        </p>
-                        <ul class="list-unstyled mb-4">
-                            <li class="mb-3"><i class="bi bi-check-circle-fill text-warning me-2"></i> Todas as vantagens do plano mensal</li>
-                            <li class="mb-3"><i class="bi bi-check-circle-fill text-warning me-2"></i> Preço especial anual</li>
-                            <li class="mb-3"><i class="bi bi-check-circle-fill text-warning me-2"></i> Suporte prioritário</li>
-                            <li class="mb-3"><i class="bi bi-check-circle-fill text-warning me-2"></i> Relatórios mensais exclusivos</li>
-                            <li class="mb-3"><i class="bi bi-check-circle-fill text-warning me-2"></i> Atualizações antecipadas</li>
-                        </ul>
-                    </div>
-                    <div class="card-footer bg-transparent border-0 pb-4 text-center">
-                        <form method="POST" action="{{ url_for('subscribe') }}">
+                    <div class="card-body">
+                        <form method="POST" action="{{ url_for('premium_subscription') }}">
+                            {{ form.csrf_token() }}
                             <input type="hidden" name="subscription_type" value="yearly">
-                            <button type="submit" class="btn btn-warning btn-lg px-5">
-                                Assinar Anualmente
+                            <div class="mb-3">
+                                <label for="email" class="form-label">Email</label>
+                                <input type="email" class="form-control" id="email" name="email" required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="password" class="form-label">Senha</label>
+                                <input type="password" class="form-control" id="password" name="password" required>
+                            </div>
+                            <button type="submit" class="btn btn-warning btn-lg w-100">
+                                Assinar Anualmente por R$80,99
                             </button>
                         </form>
                     </div>
                 </div>
             </div>
         </div>
-        
-        <div class="card mt-4 border-0 shadow-sm">
-            <div class="card-body">
-                <h5 class="card-title mb-3"><i class="bi bi-shield-check"></i> Segurança e Privacidade</h5>
-                <div class="row">
-                    <div class="col-md-6">
-                        <div class="d-flex mb-3">
-                            <i class="bi bi-lock-fill text-premium fs-4 me-3"></i>
-                            <div>
-                                <h6 class="mb-1">Pagamento Seguro</h6>
-                                <p class="small text-muted mb-0">Todos os pagamentos são processados de forma segura.</p>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="d-flex mb-3">
-                            <i class="bi bi-arrow-counterclockwise text-premium fs-4 me-3"></i>
-                            <div>
-                                <h6 class="mb-1">Cancelamento Fácil</h6>
-                                <p class="small text-muted mb-0">Cancele a qualquer momento sem taxas.</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+
+        <div class="text-center mt-4">
+            <p class="text-muted">Já assinou? <a href="{{ url_for('payment_verify') }}">Verifique seu pagamento aqui</a></p>
+            <p class="text-muted">Já tem conta? <a href="{{ url_for('user_login') }}">Faça login</a></p>
         </div>
     </div>
 </div>
