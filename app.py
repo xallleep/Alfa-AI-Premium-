@@ -7,6 +7,7 @@ import logging
 from functools import wraps
 from flask_wtf import CSRFProtect
 import json
+from pagseguro import PagSeguro
 
 # Configurações básicas
 app = Flask(__name__)
@@ -17,6 +18,11 @@ app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.config['WTF_CSRF_ENABLED'] = True
+app.config['PAGSEGURO'] = {
+    'email': os.environ.get('PAGSEGURO_EMAIL', 'seu_email_pagseguro@dominio.com'),
+    'token': os.environ.get('PAGSEGURO_TOKEN', 'SEU_TOKEN_PAGSEGURO'),
+    'sandbox': os.environ.get('PAGSEGURO_SANDBOX', 'false').lower() == 'true'
+}
 
 # Solução para o JSONEncoder
 class FlaskJSONEncoder(json.JSONEncoder):
@@ -133,6 +139,8 @@ def init_db():
                 payment_date TEXT NOT NULL,
                 expiry_date TEXT NOT NULL,
                 is_active BOOLEAN DEFAULT 1,
+                status TEXT DEFAULT 'pending',
+                transaction_id TEXT,
                 FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
             )
         ''')
@@ -191,7 +199,7 @@ def index():
                             today_matches=today_matches,
                             other_matches=other_matches,
                             last_updated=last_updated,
-                            is_premium=True)
+                            is_premium=session.get('is_premium', False))
     except Exception as e:
         logger.error(f"Erro na rota index: {str(e)}")
         return render_template('error.html', message="Erro ao carregar dados"), 500
@@ -474,42 +482,169 @@ def subscribe():
             flash('Este e-mail já está cadastrado', 'danger')
             return redirect(url_for('premium_subscription'))
         
-        # Cria novo usuário
+        # Cria novo usuário (sem ativar premium ainda)
         hashed_password = generate_password_hash(password)
         db.execute('INSERT INTO users (email, password, is_premium) VALUES (?, ?, ?)',
-                  (email, hashed_password, True))
+                  (email, hashed_password, False))
         
-        # Adiciona assinatura
         user_id = db.lastrowid
         payment_date = datetime.now().strftime('%Y-%m-%d')
         
-        if subscription_type == 'monthly':
-            expiry_date = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
-            payment_amount = 6.99
-        else:
-            expiry_date = (datetime.now() + timedelta(days=365)).strftime('%Y-%m-%d')
-            payment_amount = 80.99
+        # Configuração do PagSeguro
+        pg = PagSeguro(
+            email=app.config['PAGSEGURO']['email'],
+            token=app.config['PAGSEGURO']['token'],
+            data={
+                'currency': 'BRL',
+                'reference': f'SUB{user_id}',
+                'senderEmail': email,
+                'redirectURL': url_for('payment_success', _external=True),
+                'notificationURL': url_for('payment_notification', _external=True),
+            }
+        )
         
+        if subscription_type == 'monthly':
+            item = {
+                'id': '1',
+                'description': 'Assinatura Mensal Alfa AI Premium',
+                'amount': '6.99',
+                'quantity': 1
+            }
+            expiry_date = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
+        else:
+            item = {
+                'id': '2',
+                'description': 'Assinatura Anual Alfa AI Premium',
+                'amount': '80.99',
+                'quantity': 1
+            }
+            expiry_date = (datetime.now() + timedelta(days=365)).strftime('%Y-%m-%d')
+        
+        pg.add_item(**item)
+        
+        # Registra a assinatura como pendente
         db.execute('''
-            INSERT INTO subscriptions (user_id, subscription_type, payment_amount, payment_date, expiry_date)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (user_id, subscription_type, payment_amount, payment_date, expiry_date))
+            INSERT INTO subscriptions (user_id, subscription_type, payment_amount, 
+                                      payment_date, expiry_date, is_active, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (user_id, subscription_type, item['amount'], payment_date, expiry_date, False, 'pending'))
         
         db.commit()
         
-        # Loga o usuário automaticamente
-        session['logged_in'] = True
-        session['user_id'] = user_id
-        session['is_premium'] = True
+        # Redireciona para o PagSeguro
+        payment_url = pg.get_redirect_url()
+        return redirect(payment_url)
         
-        flash('Assinatura realizada com sucesso!', 'success')
-        return redirect(url_for('index'))
     except Exception as e:
         logger.error(f"Erro ao processar assinatura: {str(e)}")
         flash('Erro ao processar assinatura', 'danger')
         return redirect(url_for('premium_subscription'))
     finally:
         db.close()
+
+@app.route('/payment/success')
+def payment_success():
+    transaction_id = request.args.get('transaction_id')
+    
+    try:
+        db = get_db()
+        
+        # Verifica o status no PagSeguro
+        pg = PagSeguro(
+            email=app.config['PAGSEGURO']['email'],
+            token=app.config['PAGSEGURO']['token']
+        )
+        transaction = pg.get_notification(transaction_id)
+        
+        if transaction.status == '3':  # Pago
+            # Atualiza a assinatura
+            reference = transaction.reference
+            user_id = int(reference.replace('SUB', ''))
+            
+            db.execute('''
+                UPDATE subscriptions SET 
+                    is_active = 1,
+                    status = 'completed',
+                    transaction_id = ?
+                WHERE user_id = ? AND status = 'pending'
+            ''', (transaction_id, user_id))
+            
+            # Ativa o premium do usuário
+            expiry_date = db.execute('''
+                SELECT expiry_date FROM subscriptions 
+                WHERE user_id = ? AND transaction_id = ?
+            ''', (user_id, transaction_id)).fetchone()['expiry_date']
+            
+            db.execute('''
+                UPDATE users SET 
+                    is_premium = 1,
+                    premium_expiry = ?
+                WHERE id = ?
+            ''', (expiry_date, user_id))
+            
+            db.commit()
+            
+            # Loga o usuário automaticamente
+            session['logged_in'] = True
+            session['user_id'] = user_id
+            session['is_premium'] = True
+            
+            flash('Pagamento confirmado! Sua assinatura Premium está ativa.', 'success')
+            return redirect(url_for('index'))
+        else:
+            flash('Seu pagamento está sendo processado. Você receberá um e-mail quando for confirmado.', 'info')
+            return redirect(url_for('index'))
+            
+    except Exception as e:
+        logger.error(f"Erro ao verificar pagamento: {str(e)}")
+        flash('Obrigado por sua assinatura! Estamos processando seu pagamento.', 'info')
+        return redirect(url_for('index'))
+    finally:
+        db.close()
+
+@app.route('/payment/notification', methods=['POST'])
+def payment_notification():
+    notification_code = request.form.get('notificationCode')
+    
+    try:
+        pg = PagSeguro(
+            email=app.config['PAGSEGURO']['email'],
+            token=app.config['PAGSEGURO']['token']
+        )
+        transaction = pg.get_notification(notification_code)
+        
+        if transaction.status == '3':  # Pago
+            db = get_db()
+            reference = transaction.reference
+            user_id = int(reference.replace('SUB', ''))
+            
+            db.execute('''
+                UPDATE subscriptions SET 
+                    is_active = 1,
+                    status = 'completed',
+                    transaction_id = ?
+                WHERE user_id = ? AND status = 'pending'
+            ''', (transaction.code, user_id))
+            
+            # Ativa o premium do usuário
+            expiry_date = db.execute('''
+                SELECT expiry_date FROM subscriptions 
+                WHERE user_id = ? AND transaction_id = ?
+            ''', (user_id, transaction.code)).fetchone()['expiry_date']
+            
+            db.execute('''
+                UPDATE users SET 
+                    is_premium = 1,
+                    premium_expiry = ?
+                WHERE id = ?
+            ''', (expiry_date, user_id))
+            
+            db.commit()
+            
+    except Exception as e:
+        logger.error(f"Erro na notificação de pagamento: {str(e)}")
+    
+    return '', 200
 
 @app.errorhandler(404)
 def page_not_found(e):

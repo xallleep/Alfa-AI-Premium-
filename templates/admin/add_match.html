@@ -57,7 +57,98 @@
                                 <label for="away_win_percent" class="form-label">% Vitória Visitante</label>
                                 <input type="number" class="form-control" id="away_win_percent" name="away_win_percent" min="0" max="100" value="0">
                             </div>
-                            
+
+                            <div class="col-md-4">
+                                <label for="draw_percent" class="form-label">% Empate</label>
+                                <input type="number" class="form-control" id="draw_percent" name="draw_percent" min="0" max="100" value="0">
+                            </div>
+
+                            <div class="col-md-4">
+                                <label for="over_25_percent" class="form-label">% Over 2.5</label>
+                                <input type="number" class="form-control" id="over_25_percent" name="over_25_percent" min="0" max="100" value="0">
+                            </div>
+
+                            <div class="col-md-4">
+                                <label for="btts_percent" class="form-label">% Ambos Marcam</label>
+                                <input type="number" class="form-control" id="btts_percent" name="btts_percent" min="0" max="100" value="0">
+                            </div>
+
+                            <div class="col-12">
+                                <hr>
+                                <h5>Estatísticas Avançadas</h5>
+                            </div>
+
+                            <div class="col-md-4">
+                                <label for="yellow_cards_predicted" class="form-label">Cartões Amarelos Previstos</label>
+                                <input type="number" step="0.5" class="form-control" id="yellow_cards_predicted" name="yellow_cards_predicted" value="0">
+                            </div>
+
+                            <div class="col-md-4">
+                                <label for="red_cards_predicted" class="form-label">Cartões Vermelhos Previstos</label>
+                                <input type="number" step="0.5" class="form-control" id="red_cards_predicted" name="red_cards_predicted" value="0">
+                            </div>
+
+                            <div class="col-md-4">
+                                <label for="corners_predicted" class="form-label">Escanteios Previstos</label>
+                                <input type="number" step="0.5" class="form-control" id="corners_predicted" name="corners_predicted" value="0">
+                            </div>
+
+                            <div class="col-md-4">
+                                <label for="corners_home_predicted" class="form-label">Escanteios Casa</label>
+                                <input type="number" step="0.5" class="form-control" id="corners_home_predicted" name="corners_home_predicted" value="0">
+                            </div>
+
+                            <div class="col-md-4">
+                                <label for="corners_away_predicted" class="form-label">Escanteios Visitante</label>
+                                <input type="number" step="0.5" class="form-control" id="corners_away_predicted" name="corners_away_predicted" value="0">
+                            </div>
+
+                            <div class="col-md-4">
+                                <label for="possession_home" class="form-label">Posse de Bola Casa (%)</label>
+                                <input type="number" class="form-control" id="possession_home" name="possession_home" min="0" max="100" value="50">
+                            </div>
+
+                            <div class="col-md-4">
+                                <label for="possession_away" class="form-label">Posse de Bola Visitante (%)</label>
+                                <input type="number" class="form-control" id="possession_away" name="possession_away" min="0" max="100" value="50">
+                            </div>
+
+                            <div class="col-12">
+                                <hr>
+                                <h5>Outras Informações</h5>
+                            </div>
+
+                            <div class="col-12">
+                                <label for="details" class="form-label">Análise Detalhada</label>
+                                <textarea class="form-control" id="details" name="details" rows="3"></textarea>
+                            </div>
+
+                            <div class="col-md-6">
+                                <label for="safe_prediction" class="form-label">Previsão Segura</label>
+                                <input type="text" class="form-control" id="safe_prediction" name="safe_prediction" placeholder="Ex: Over 1.5">
+                            </div>
+
+                            <div class="col-md-6">
+                                <label for="risk_prediction" class="form-label">Previsão Arriscada</label>
+                                <input type="text" class="form-control" id="risk_prediction" name="risk_prediction" placeholder="Ex: Empate">
+                            </div>
+
+                            <div class="col-md-4">
+                                <label for="display_order" class="form-label">Ordem de Exibição</label>
+                                <input type="number" class="form-control" id="display_order" name="display_order" value="0">
+                            </div>
+
+                            <div class="col-md-4">
+                                <label for="color_scheme" class="form-label">Esquema de Cores</label>
+                                <select class="form-select" id="color_scheme" name="color_scheme">
+                                    <option value="blue">Azul</option>
+                                    <option value="green">Verde</option>
+                                    <option value="red">Vermelho</option>
+                                    <option value="purple">Roxo</option>
+                                    <option value="orange">Laranja</option>
+                                </select>
+                            </div>
+
                             <div class="col-12">
                                 <button type="submit" class="btn btn-premium">Salvar Partida</button>
                                 <a href="{{ url_for('admin_dashboard') }}" class="btn btn-outline-secondary">Cancelar</a>
