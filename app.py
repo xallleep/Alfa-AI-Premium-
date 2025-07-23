@@ -20,6 +20,7 @@ app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.config['WTF_CSRF_ENABLED'] = True
+app.config['WTF_CSRF_SECRET_KEY'] = os.environ.get('CSRF_SECRET_KEY', os.urandom(24))
 
 # Payment links
 PAGBANK_LINKS = {
@@ -32,7 +33,6 @@ class SubscriptionForm(FlaskForm):
     email = StringField('Email', validators=[DataRequired(), Email()])
     password = PasswordField('Password', validators=[DataRequired()])
     subscription_type = HiddenField('Subscription Type', validators=[DataRequired()])
-    # O token CSRF será adicionado automaticamente pelo Flask-WTF
 
 class LoginForm(FlaskForm):
     email = StringField('Email', validators=[DataRequired(), Email()])
@@ -249,9 +249,8 @@ def index():
 @app.route('/premium', methods=['GET', 'POST'])
 def premium_subscription():
     form = SubscriptionForm()
-    if request.method == 'POST' and form.validate():
-        # O processamento do formulário foi movido para a rota /subscribe
-        pass
+    if form.validate_on_submit():
+        return redirect(url_for('subscribe'))
     return render_template('premium.html', form=form, pagbank_links=PAGBANK_LINKS)
 
 @app.route('/login', methods=['GET', 'POST'])
