@@ -247,7 +247,7 @@ def admin_login():
         else:
             flash('Credenciais de administrador incorretas', 'danger')
     
-    return render_template('admin_logim.html')
+    return render_template('admin_login.html')
 
 @app.route('/admin/logout')
 def admin_logout():
