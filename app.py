@@ -32,6 +32,7 @@ class SubscriptionForm(FlaskForm):
     email = StringField('Email', validators=[DataRequired(), Email()])
     password = PasswordField('Password', validators=[DataRequired()])
     subscription_type = HiddenField('Subscription Type', validators=[DataRequired()])
+    # O token CSRF será adicionado automaticamente pelo Flask-WTF
 
 class LoginForm(FlaskForm):
     email = StringField('Email', validators=[DataRequired(), Email()])
@@ -245,9 +246,12 @@ def index():
     finally:
         db.close()
 
-@app.route('/premium')
+@app.route('/premium', methods=['GET', 'POST'])
 def premium_subscription():
     form = SubscriptionForm()
+    if request.method == 'POST' and form.validate():
+        # O processamento do formulário foi movido para a rota /subscribe
+        pass
     return render_template('premium.html', form=form, pagbank_links=PAGBANK_LINKS)
 
 @app.route('/login', methods=['GET', 'POST'])
