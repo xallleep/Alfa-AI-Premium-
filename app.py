@@ -194,6 +194,17 @@ def check_premium_status(user_id):
     finally:
         db.close()
 
+def get_numeric_value(key, default=0):
+    value = request.form.get(key)
+    return int(value) if value and value.isdigit() else default
+
+def get_float_value(key, default=0.0):
+    value = request.form.get(key)
+    try:
+        return float(value) if value else default
+    except ValueError:
+        return default
+
 # Rotas principais
 @app.route('/')
 @login_required
@@ -319,6 +330,17 @@ def add_match():
     if request.method == 'POST':
         try:
             db = get_db()
+            
+            # Validar campos obrigatórios
+            home_team = request.form.get('home_team', '').strip()
+            away_team = request.form.get('away_team', '').strip()
+            match_date = request.form.get('match_date', '').strip()
+            match_time = request.form.get('match_time', '').strip()
+            
+            if not home_team or not away_team or not match_date or not match_time:
+                flash('Preencha todos os campos obrigatórios', 'danger')
+                return redirect(url_for('add_match'))
+            
             db.execute('''
                 INSERT INTO matches (
                     home_team, away_team, competition, location, 
@@ -334,49 +356,51 @@ def add_match():
                     display_order, color_scheme
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
-                request.form.get('home_team'),
-                request.form.get('away_team'),
-                request.form.get('competition'),
-                request.form.get('location'),
-                request.form.get('match_date'),
-                request.form.get('match_time'),
-                request.form.get('predicted_score'),
-                request.form.get('home_win_percent', 0),
-                request.form.get('away_win_percent', 0),
-                request.form.get('draw_percent', 0),
-                request.form.get('over_05_percent', 0),
-                request.form.get('over_15_percent', 0),
-                request.form.get('over_25_percent', 0),
-                request.form.get('over_35_percent', 0),
-                request.form.get('btts_percent', 0),
-                request.form.get('btts_no_percent', 0),
-                request.form.get('yellow_cards_predicted', 0),
-                request.form.get('red_cards_predicted', 0),
-                request.form.get('corners_predicted', 0),
-                request.form.get('corners_home_predicted', 0),
-                request.form.get('corners_away_predicted', 0),
-                request.form.get('possession_home', 50),
-                request.form.get('possession_away', 50),
-                request.form.get('shots_on_target_home', 0),
-                request.form.get('shots_on_target_away', 0),
-                request.form.get('shots_off_target_home', 0),
-                request.form.get('shots_off_target_away', 0),
-                request.form.get('fouls_home', 0),
-                request.form.get('fouls_away', 0),
-                request.form.get('offsides_home', 0),
-                request.form.get('offsides_away', 0),
+                home_team,
+                away_team,
+                request.form.get('competition', ''),
+                request.form.get('location', ''),
+                match_date,
+                match_time,
+                request.form.get('predicted_score', ''),
+                get_numeric_value('home_win_percent'),
+                get_numeric_value('away_win_percent'),
+                get_numeric_value('draw_percent'),
+                get_numeric_value('over_05_percent'),
+                get_numeric_value('over_15_percent'),
+                get_numeric_value('over_25_percent'),
+                get_numeric_value('over_35_percent'),
+                get_numeric_value('btts_percent'),
+                get_numeric_value('btts_no_percent'),
+                get_float_value('yellow_cards_predicted'),
+                get_float_value('red_cards_predicted'),
+                get_float_value('corners_predicted'),
+                get_float_value('corners_home_predicted'),
+                get_float_value('corners_away_predicted'),
+                get_numeric_value('possession_home', 50),
+                get_numeric_value('possession_away', 50),
+                get_numeric_value('shots_on_target_home'),
+                get_numeric_value('shots_on_target_away'),
+                get_numeric_value('shots_off_target_home'),
+                get_numeric_value('shots_off_target_away'),
+                get_numeric_value('fouls_home'),
+                get_numeric_value('fouls_away'),
+                get_numeric_value('offsides_home'),
+                get_numeric_value('offsides_away'),
                 request.form.get('safe_prediction', ''),
                 request.form.get('risk_prediction', ''),
                 request.form.get('details', ''),
-                request.form.get('display_order', 0),
+                get_numeric_value('display_order'),
                 request.form.get('color_scheme', 'blue')
             ))
             db.commit()
             flash('Partida adicionada com sucesso!', 'success')
             return redirect(url_for('admin_dashboard'))
         except Exception as e:
+            db.rollback()
             logger.error(f"Erro ao adicionar partida: {str(e)}")
             flash('Erro ao adicionar partida', 'danger')
+            return redirect(url_for('add_match'))
         finally:
             db.close()
     
@@ -436,34 +460,34 @@ def edit_match(match_id):
                 request.form.get('match_date'),
                 request.form.get('match_time'),
                 request.form.get('predicted_score'),
-                request.form.get('home_win_percent', 0),
-                request.form.get('away_win_percent', 0),
-                request.form.get('draw_percent', 0),
-                request.form.get('over_05_percent', 0),
-                request.form.get('over_15_percent', 0),
-                request.form.get('over_25_percent', 0),
-                request.form.get('over_35_percent', 0),
-                request.form.get('btts_percent', 0),
-                request.form.get('btts_no_percent', 0),
-                request.form.get('yellow_cards_predicted', 0),
-                request.form.get('red_cards_predicted', 0),
-                request.form.get('corners_predicted', 0),
-                request.form.get('corners_home_predicted', 0),
-                request.form.get('corners_away_predicted', 0),
-                request.form.get('possession_home', 50),
-                request.form.get('possession_away', 50),
-                request.form.get('shots_on_target_home', 0),
-                request.form.get('shots_on_target_away', 0),
-                request.form.get('shots_off_target_home', 0),
-                request.form.get('shots_off_target_away', 0),
-                request.form.get('fouls_home', 0),
-                request.form.get('fouls_away', 0),
-                request.form.get('offsides_home', 0),
-                request.form.get('offsides_away', 0),
+                get_numeric_value('home_win_percent'),
+                get_numeric_value('away_win_percent'),
+                get_numeric_value('draw_percent'),
+                get_numeric_value('over_05_percent'),
+                get_numeric_value('over_15_percent'),
+                get_numeric_value('over_25_percent'),
+                get_numeric_value('over_35_percent'),
+                get_numeric_value('btts_percent'),
+                get_numeric_value('btts_no_percent'),
+                get_float_value('yellow_cards_predicted'),
+                get_float_value('red_cards_predicted'),
+                get_float_value('corners_predicted'),
+                get_float_value('corners_home_predicted'),
+                get_float_value('corners_away_predicted'),
+                get_numeric_value('possession_home', 50),
+                get_numeric_value('possession_away', 50),
+                get_numeric_value('shots_on_target_home'),
+                get_numeric_value('shots_on_target_away'),
+                get_numeric_value('shots_off_target_home'),
+                get_numeric_value('shots_off_target_away'),
+                get_numeric_value('fouls_home'),
+                get_numeric_value('fouls_away'),
+                get_numeric_value('offsides_home'),
+                get_numeric_value('offsides_away'),
                 request.form.get('safe_prediction', ''),
                 request.form.get('risk_prediction', ''),
                 request.form.get('details', ''),
-                request.form.get('display_order', 0),
+                get_numeric_value('display_order'),
                 request.form.get('color_scheme', 'blue'),
                 match_id
             ))
@@ -563,6 +587,10 @@ def subscribe():
         password = form.password.data
         subscription_type = form.subscription_type.data
         
+        if subscription_type not in ['monthly', 'yearly']:
+            flash('Tipo de assinatura inválido', 'danger')
+            return redirect(url_for('premium_subscription'))
+            
         try:
             db = get_db()
             
@@ -584,18 +612,18 @@ def subscribe():
             # Define a data de expiração conforme o plano
             if subscription_type == 'monthly':
                 expiry_date = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
-                payment_amount = '6.99'
+                payment_amount = 6.99
             else:
                 expiry_date = (datetime.now() + timedelta(days=365)).strftime('%Y-%m-%d')
-                payment_amount = '80.99'
+                payment_amount = 80.99
             
             # Registra a assinatura como pendente
             db.execute('''
                 INSERT INTO subscriptions (
                     user_id, subscription_type, payment_amount, 
-                    payment_date, expiry_date
-                ) VALUES (?, ?, ?, ?, ?)
-            ''', (user_id, subscription_type, payment_amount, payment_date, expiry_date))
+                    payment_date, expiry_date, status
+                ) VALUES (?, ?, ?, ?, ?, ?)
+            ''', (user_id, subscription_type, payment_amount, payment_date, expiry_date, 'pending'))
             
             db.commit()
             
@@ -603,8 +631,9 @@ def subscribe():
             return redirect(PAGBANK_LINKS[subscription_type])
             
         except Exception as e:
+            db.rollback()
             logger.error(f"Erro ao processar assinatura: {str(e)}")
-            flash('Erro ao processar assinatura', 'danger')
+            flash('Erro ao processar assinatura. Por favor, tente novamente.', 'danger')
             return redirect(url_for('premium_subscription'))
         finally:
             db.close()

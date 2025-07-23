@@ -9,7 +9,8 @@
                     <h3 class="mb-0">Adicionar Nova Partida</h3>
                 </div>
                 <div class="card-body">
-                    <form method="POST">
+                    <form method="POST" action="{{ url_for('add_match') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <div class="row g-3">
                             <div class="col-md-6">
                                 <label for="home_team" class="form-label">Time da Casa</label>
@@ -64,13 +65,33 @@
                             </div>
 
                             <div class="col-md-4">
+                                <label for="over_05_percent" class="form-label">% Over 0.5</label>
+                                <input type="number" class="form-control" id="over_05_percent" name="over_05_percent" min="0" max="100" value="0">
+                            </div>
+
+                            <div class="col-md-4">
+                                <label for="over_15_percent" class="form-label">% Over 1.5</label>
+                                <input type="number" class="form-control" id="over_15_percent" name="over_15_percent" min="0" max="100" value="0">
+                            </div>
+
+                            <div class="col-md-4">
                                 <label for="over_25_percent" class="form-label">% Over 2.5</label>
                                 <input type="number" class="form-control" id="over_25_percent" name="over_25_percent" min="0" max="100" value="0">
                             </div>
 
                             <div class="col-md-4">
+                                <label for="over_35_percent" class="form-label">% Over 3.5</label>
+                                <input type="number" class="form-control" id="over_35_percent" name="over_35_percent" min="0" max="100" value="0">
+                            </div>
+
+                            <div class="col-md-4">
                                 <label for="btts_percent" class="form-label">% Ambos Marcam</label>
                                 <input type="number" class="form-control" id="btts_percent" name="btts_percent" min="0" max="100" value="0">
+                            </div>
+
+                            <div class="col-md-4">
+                                <label for="btts_no_percent" class="form-label">% Ambos Não Marcam</label>
+                                <input type="number" class="form-control" id="btts_no_percent" name="btts_no_percent" min="0" max="100" value="0">
                             </div>
 
                             <div class="col-12">
@@ -111,6 +132,46 @@
                             <div class="col-md-4">
                                 <label for="possession_away" class="form-label">Posse de Bola Visitante (%)</label>
                                 <input type="number" class="form-control" id="possession_away" name="possession_away" min="0" max="100" value="50">
+                            </div>
+
+                            <div class="col-md-4">
+                                <label for="shots_on_target_home" class="form-label">Chutes no Gol (Casa)</label>
+                                <input type="number" class="form-control" id="shots_on_target_home" name="shots_on_target_home" value="0">
+                            </div>
+
+                            <div class="col-md-4">
+                                <label for="shots_on_target_away" class="form-label">Chutes no Gol (Visitante)</label>
+                                <input type="number" class="form-control" id="shots_on_target_away" name="shots_on_target_away" value="0">
+                            </div>
+
+                            <div class="col-md-4">
+                                <label for="shots_off_target_home" class="form-label">Chutes Fora (Casa)</label>
+                                <input type="number" class="form-control" id="shots_off_target_home" name="shots_off_target_home" value="0">
+                            </div>
+
+                            <div class="col-md-4">
+                                <label for="shots_off_target_away" class="form-label">Chutes Fora (Visitante)</label>
+                                <input type="number" class="form-control" id="shots_off_target_away" name="shots_off_target_away" value="0">
+                            </div>
+
+                            <div class="col-md-4">
+                                <label for="fouls_home" class="form-label">Faltas (Casa)</label>
+                                <input type="number" class="form-control" id="fouls_home" name="fouls_home" value="0">
+                            </div>
+
+                            <div class="col-md-4">
+                                <label for="fouls_away" class="form-label">Faltas (Visitante)</label>
+                                <input type="number" class="form-control" id="fouls_away" name="fouls_away" value="0">
+                            </div>
+
+                            <div class="col-md-4">
+                                <label for="offsides_home" class="form-label">Impedimentos (Casa)</label>
+                                <input type="number" class="form-control" id="offsides_home" name="offsides_home" value="0">
+                            </div>
+
+                            <div class="col-md-4">
+                                <label for="offsides_away" class="form-label">Impedimentos (Visitante)</label>
+                                <input type="number" class="form-control" id="offsides_away" name="offsides_away" value="0">
                             </div>
 
                             <div class="col-12">
