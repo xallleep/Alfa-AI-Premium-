@@ -1,5 +1,4 @@
-import os
-from flask import Flask, render_template, request, redirect, url_for, flash, session
+from flask import Flask, render_template, redirect, url_for, flash, session
 from datetime import datetime, timedelta
 import sqlite3
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -7,23 +6,24 @@ import logging
 from functools import wraps
 from flask_wtf import CSRFProtect
 from wtforms import Form, StringField, PasswordField, HiddenField, validators
+import os
 
-# Configuração básica do aplicativo
 app = Flask(__name__)
+
+# Configurações básicas
 app.config.update(
-    SECRET_KEY=os.environ.get('SECRET_KEY', 'uma-chave-secreta-muito-segura-123'),
-    WTF_CSRF_SECRET_KEY=os.environ.get('CSRF_SECRET_KEY', 'outra-chave-secreta-csrf-456'),
+    SECRET_KEY=os.environ.get('SECRET_KEY', 'dev-key-123456'),
+    WTF_CSRF_SECRET_KEY=os.environ.get('CSRF_SECRET_KEY', 'csrf-dev-key-123456'),
     DATABASE=os.path.join(app.instance_path, 'database.db'),
     SESSION_COOKIE_SECURE=True,
-    SESSION_COOKIE_SAMESITE='Lax',
-    PERMANENT_SESSION_LIFETIME=timedelta(minutes=30)
+    SESSION_COOKIE_SAMESITE='Lax'
 )
 
 csrf = CSRFProtect(app)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Configurações
+# Configurações do aplicativo
 PAGBANK_LINKS = {
     'monthly': 'https://pag.ae/7_TnPtRxH',
     'yearly': 'https://pag.ae/7_TnQbYun'
@@ -31,22 +31,22 @@ PAGBANK_LINKS = {
 
 ADMIN_CREDENTIALS = {
     'username': os.environ.get('ADMIN_USERNAME', 'admin'),
-    'password': generate_password_hash(os.environ.get('ADMIN_PASSWORD', 'senha-admin-secreta'))
+    'password_hash': generate_password_hash(os.environ.get('ADMIN_PASSWORD', 'admin123'))
 }
 
 # Formulários
 class SubscriptionForm(Form):
     email = StringField('Email', validators=[
-        validators.DataRequired(message="Email é obrigatório"),
-        validators.Email(message="Email inválido"),
-        validators.Length(min=6, max=50, message="Email deve ter entre 6 e 50 caracteres")
+        validators.DataRequired(),
+        validators.Email(),
+        validators.Length(min=6, max=50)
     ])
     password = PasswordField('Senha', validators=[
-        validators.DataRequired(message="Senha é obrigatória"),
-        validators.Length(min=6, message="Senha deve ter no mínimo 6 caracteres")
+        validators.DataRequired(),
+        validators.Length(min=6)
     ])
     subscription_type = HiddenField('Tipo de Assinatura', validators=[
-        validators.DataRequired(message="Tipo de assinatura é obrigatório")
+        validators.DataRequired()
     ])
 
 class LoginForm(Form):
@@ -70,6 +70,7 @@ def init_db():
         os.makedirs(app.instance_path, exist_ok=True)
         db = get_db()
         try:
+            # Criação das tabelas
             db.execute('''
                 CREATE TABLE IF NOT EXISTS users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -94,22 +95,6 @@ def init_db():
                 )
             ''')
             
-            db.execute('''
-                CREATE TABLE IF NOT EXISTS matches (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    home_team TEXT NOT NULL,
-                    away_team TEXT NOT NULL,
-                    match_date TEXT NOT NULL,
-                    match_time TEXT NOT NULL,
-                    predicted_score TEXT,
-                    home_win_percent INTEGER,
-                    away_win_percent INTEGER,
-                    draw_percent INTEGER,
-                    details TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-            
             db.commit()
         except Exception as e:
             logger.error(f"Erro ao inicializar banco de dados: {e}")
@@ -124,7 +109,7 @@ def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if not session.get('logged_in'):
-            flash('Você precisa fazer login para acessar esta página', 'warning')
+            flash('Por favor, faça login para acessar esta página', 'warning')
             return redirect(url_for('user_login'))
         return f(*args, **kwargs)
     return decorated_function
@@ -150,11 +135,13 @@ def admin_required(f):
 # Rotas Públicas
 @app.route('/')
 def home():
+    """Rota principal que redireciona para a página de assinatura"""
     return redirect(url_for('premium_subscription'))
 
 @app.route('/premium', methods=['GET', 'POST'])
 def premium_subscription():
-    form = SubscriptionForm(request.form)
+    """Página de assinatura premium"""
+    form = SubscriptionForm(request.form if request.method == 'POST' else None)
     
     if request.method == 'POST' and form.validate():
         db = None
@@ -173,6 +160,7 @@ def premium_subscription():
             
             if user:
                 if check_password_hash(user['password'], password):
+                    # Login bem-sucedido
                     session['user_id'] = user['id']
                     session['logged_in'] = True
                     session['is_premium'] = bool(user['is_premium'])
@@ -217,20 +205,19 @@ def premium_subscription():
         finally:
             if db:
                 db.close()
-    elif request.method == 'POST':
-        flash('Por favor, corrija os erros no formulário', 'danger')
     
     return render_template('premium.html', form=form)
 
 @app.route('/login', methods=['GET', 'POST'])
 def user_login():
-    form = LoginForm(request.form)
+    """Página de login de usuário"""
+    form = LoginForm(request.form if request.method == 'POST' else None)
     
     if request.method == 'POST' and form.validate():
         db = None
         try:
-            db = get_db()
             email = form.email.data.lower().strip()
+            db = get_db()
             user = db.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
             
             if user and check_password_hash(user['password'], form.password.data):
@@ -255,12 +242,14 @@ def user_login():
 
 @app.route('/logout')
 def logout():
+    """Encerra a sessão do usuário"""
     session.clear()
     flash('Você foi desconectado com sucesso', 'info')
     return redirect(url_for('home'))
 
 @app.route('/payment/verify', methods=['GET', 'POST'])
 def payment_verify():
+    """Página de verificação de pagamento"""
     if request.method == 'POST':
         email = request.form.get('email', '').strip().lower()
         if not email:
@@ -320,6 +309,7 @@ def payment_verify():
 @login_required
 @premium_required
 def premium_matches():
+    """Página de partidas para usuários premium"""
     db = None
     try:
         db = get_db()
@@ -342,17 +332,18 @@ def premium_matches():
 # Rotas Admin
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
+    """Página de login de administrador"""
     if session.get('admin_logged_in'):
         return redirect(url_for('admin_dashboard'))
     
-    form = AdminLoginForm(request.form)
+    form = AdminLoginForm(request.form if request.method == 'POST' else None)
     
     if request.method == 'POST' and form.validate():
         username = form.username.data.strip()
         password = form.password.data
         
         if (username == ADMIN_CREDENTIALS['username'] and 
-            check_password_hash(ADMIN_CREDENTIALS['password'], password)):
+            check_password_hash(ADMIN_CREDENTIALS['password_hash'], password)):
             session['admin_logged_in'] = True
             return redirect(url_for('admin_dashboard'))
         else:
@@ -363,6 +354,7 @@ def admin_login():
 @app.route('/admin/dashboard')
 @admin_required
 def admin_dashboard():
+    """Painel de administração"""
     db = None
     try:
         db = get_db()
@@ -381,6 +373,7 @@ def admin_dashboard():
 
 @app.route('/admin/logout')
 def admin_logout():
+    """Encerra a sessão de administrador"""
     session.pop('admin_logged_in', None)
     flash('Logout de administrador realizado', 'info')
     return redirect(url_for('home'))
