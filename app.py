@@ -11,7 +11,7 @@ from flask_wtf import FlaskForm
 from wtforms import StringField, PasswordField, HiddenField
 from wtforms.validators import DataRequired, Email
 
-# Configurações básicas
+# Basic configurations
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24))
 app.config['DATABASE'] = os.path.join(app.instance_path, 'matches.db')
@@ -21,13 +21,13 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.config['WTF_CSRF_ENABLED'] = True
 
-# Links de pagamento do PagBank
+# Payment links
 PAGBANK_LINKS = {
     'monthly': 'https://pag.ae/7_TnPtRxH',
     'yearly': 'https://pag.ae/7_TnQbYun'
 }
 
-# Classes de formulário
+# Form classes with CSRF protection
 class SubscriptionForm(FlaskForm):
     email = StringField('Email', validators=[DataRequired(), Email()])
     password = PasswordField('Password', validators=[DataRequired()])
@@ -41,7 +41,7 @@ class AdminLoginForm(FlaskForm):
     username = StringField('Username', validators=[DataRequired()])
     password = PasswordField('Password', validators=[DataRequired()])
 
-# Solução para o JSONEncoder
+# JSON Encoder
 class FlaskJSONEncoder(json.JSONEncoder):
     def default(self, o):
         if hasattr(o, '__html__'):
@@ -50,14 +50,14 @@ class FlaskJSONEncoder(json.JSONEncoder):
 
 app.json_encoder = FlaskJSONEncoder
 
-# Configurações de CSRF
+# CSRF Protection
 csrf = CSRFProtect(app)
 
-# Configurações de logging
+# Logging configuration
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Configurações de admin
+# Admin settings
 ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'admin')
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin123premium')
 ADMIN_PASSWORD_HASH = generate_password_hash(ADMIN_PASSWORD)
@@ -81,7 +81,7 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-# Database helper functions
+# Database functions
 def get_db():
     db = sqlite3.connect(app.config['DATABASE'])
     db.row_factory = sqlite3.Row
@@ -163,14 +163,14 @@ def init_db():
         ''')
         
         db.commit()
-        logger.info("Banco de dados inicializado com sucesso")
+        logger.info("Database initialized successfully")
     except Exception as e:
-        logger.error(f"Erro ao inicializar banco de dados: {str(e)}")
-        flash('Erro ao inicializar banco de dados', 'danger')
+        logger.error(f"Error initializing database: {str(e)}")
+        flash('Database initialization error', 'danger')
     finally:
         db.close()
 
-# Inicializa o banco de dados
+# Initialize database
 with app.app_context():
     init_db()
 
@@ -182,7 +182,6 @@ def format_date(date_str):
         return date_str
 
 def check_premium_status(user_id):
-    """Verifica se o usuário tem assinatura premium ativa"""
     db = get_db()
     try:
         user = db.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
@@ -205,13 +204,12 @@ def get_float_value(key, default=0.0):
     except ValueError:
         return default
 
-# Rotas principais
+# Routes
 @app.route('/')
 @login_required
 def index():
     try:
         db = get_db()
-        
         today = datetime.now().strftime('%Y-%m-%d')
         next_week = (datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d')
         
@@ -242,8 +240,8 @@ def index():
                             last_updated=last_updated,
                             is_premium=session.get('is_premium', False))
     except Exception as e:
-        logger.error(f"Erro na rota index: {str(e)}")
-        return render_template('error.html', message="Erro ao carregar dados"), 500
+        logger.error(f"Error in index route: {str(e)}")
+        return render_template('error.html', message="Error loading data"), 500
     finally:
         db.close()
 
@@ -267,13 +265,13 @@ def user_login():
                 session['logged_in'] = True
                 session['user_id'] = user['id']
                 session['is_premium'] = check_premium_status(user['id'])
-                flash('Login realizado com sucesso!', 'success')
+                flash('Login successful!', 'success')
                 return redirect(url_for('index'))
             else:
-                flash('E-mail ou senha incorretos', 'danger')
+                flash('Incorrect email or password', 'danger')
         except Exception as e:
-            logger.error(f"Erro no login: {str(e)}")
-            flash('Erro ao realizar login', 'danger')
+            logger.error(f"Login error: {str(e)}")
+            flash('Login error', 'danger')
         finally:
             db.close()
     
@@ -282,7 +280,7 @@ def user_login():
 @app.route('/logout')
 def logout():
     session.clear()
-    flash('Você foi desconectado', 'info')
+    flash('You have been logged out', 'info')
     return redirect(url_for('index'))
 
 @app.route('/admin/login', methods=['GET', 'POST'])
@@ -294,17 +292,17 @@ def admin_login():
         
         if username == ADMIN_USERNAME and check_password_hash(ADMIN_PASSWORD_HASH, password):
             session['admin_logged_in'] = True
-            flash('Login de administrador realizado com sucesso!', 'success')
+            flash('Admin login successful!', 'success')
             return redirect(url_for('admin_dashboard'))
         else:
-            flash('Credenciais de administrador incorretas', 'danger')
+            flash('Incorrect admin credentials', 'danger')
     
     return render_template('admin_login.html', form=form)
 
 @app.route('/admin/logout')
 def admin_logout():
     session.pop('admin_logged_in', None)
-    flash('Você foi desconectado como administrador', 'info')
+    flash('Admin logged out', 'info')
     return redirect(url_for('index'))
 
 @app.route('/admin')
@@ -319,8 +317,8 @@ def admin_dashboard():
         matches = db.execute('SELECT * FROM matches ORDER BY match_date, match_time').fetchall()
         return render_template('admin/dashboard.html', matches=matches)
     except Exception as e:
-        logger.error(f"Erro no dashboard admin: {str(e)}")
-        return render_template('error.html', message="Erro ao carregar dashboard"), 500
+        logger.error(f"Admin dashboard error: {str(e)}")
+        return render_template('error.html', message="Error loading dashboard"), 500
     finally:
         db.close()
 
@@ -331,14 +329,13 @@ def add_match():
         try:
             db = get_db()
             
-            # Validar campos obrigatórios
             home_team = request.form.get('home_team', '').strip()
             away_team = request.form.get('away_team', '').strip()
             match_date = request.form.get('match_date', '').strip()
             match_time = request.form.get('match_time', '').strip()
             
             if not home_team or not away_team or not match_date or not match_time:
-                flash('Preencha todos os campos obrigatórios', 'danger')
+                flash('Fill all required fields', 'danger')
                 return redirect(url_for('add_match'))
             
             db.execute('''
@@ -394,12 +391,12 @@ def add_match():
                 request.form.get('color_scheme', 'blue')
             ))
             db.commit()
-            flash('Partida adicionada com sucesso!', 'success')
+            flash('Match added successfully!', 'success')
             return redirect(url_for('admin_dashboard'))
         except Exception as e:
             db.rollback()
-            logger.error(f"Erro ao adicionar partida: {str(e)}")
-            flash('Erro ao adicionar partida', 'danger')
+            logger.error(f"Error adding match: {str(e)}")
+            flash('Error adding match', 'danger')
             return redirect(url_for('add_match'))
         finally:
             db.close()
@@ -492,18 +489,18 @@ def edit_match(match_id):
                 match_id
             ))
             db.commit()
-            flash('Partida atualizada com sucesso!', 'success')
+            flash('Match updated successfully!', 'success')
             return redirect(url_for('admin_dashboard'))
         
         match = db.execute('SELECT * FROM matches WHERE id = ?', (match_id,)).fetchone()
         if not match:
-            flash('Partida não encontrada', 'danger')
+            flash('Match not found', 'danger')
             return redirect(url_for('admin_dashboard'))
             
         return render_template('admin/edit_match.html', match=match)
     except Exception as e:
-        logger.error(f"Erro ao editar partida: {str(e)}")
-        flash('Erro ao editar partida', 'danger')
+        logger.error(f"Error editing match: {str(e)}")
+        flash('Error editing match', 'danger')
         return redirect(url_for('admin_dashboard'))
     finally:
         db.close()
@@ -515,17 +512,16 @@ def delete_match(match_id):
         db = get_db()
         db.execute('DELETE FROM matches WHERE id = ?', (match_id,))
         db.commit()
-        flash('Partida excluída com sucesso', 'success')
+        flash('Match deleted successfully', 'success')
     except Exception as e:
-        logger.error(f"Erro ao excluir partida: {str(e)}")
-        flash('Erro ao excluir partida', 'danger')
+        logger.error(f"Error deleting match: {str(e)}")
+        flash('Error deleting match', 'danger')
     finally:
         db.close()
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/payment/verify', methods=['GET', 'POST'])
 def payment_verify():
-    """Rota para verificar manualmente os pagamentos (quando o usuário retorna do PagBank)"""
     if request.method == 'POST':
         email = request.form.get('email')
         
@@ -534,10 +530,9 @@ def payment_verify():
             user = db.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
             
             if not user:
-                flash('E-mail não encontrado', 'danger')
+                flash('Email not found', 'danger')
                 return redirect(url_for('payment_verify'))
             
-            # Verifica se há pagamentos recentes (últimos 30 minutos)
             recent_payments = db.execute('''
                 SELECT * FROM subscriptions 
                 WHERE user_id = ? 
@@ -563,15 +558,15 @@ def payment_verify():
                 
                 db.commit()
                 
-                flash('Pagamento confirmado! Seu acesso premium foi ativado.', 'success')
+                flash('Payment confirmed! Premium access activated.', 'success')
                 return redirect(url_for('index'))
             else:
-                flash('Nenhum pagamento recente encontrado para este e-mail', 'warning')
+                flash('No recent payment found for this email', 'warning')
                 return redirect(url_for('payment_verify'))
                 
         except Exception as e:
-            logger.error(f"Erro ao verificar pagamento: {str(e)}")
-            flash('Erro ao verificar pagamento', 'danger')
+            logger.error(f"Payment verification error: {str(e)}")
+            flash('Payment verification error', 'danger')
             return redirect(url_for('payment_verify'))
         finally:
             db.close()
@@ -588,20 +583,18 @@ def subscribe():
         subscription_type = form.subscription_type.data
         
         if subscription_type not in ['monthly', 'yearly']:
-            flash('Tipo de assinatura inválido', 'danger')
+            flash('Invalid subscription type', 'danger')
             return redirect(url_for('premium_subscription'))
             
         try:
             db = get_db()
             
-            # Verifica se o usuário já existe
             user = db.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
             
             if user:
-                flash('Este e-mail já está cadastrado', 'danger')
+                flash('Email already registered', 'danger')
                 return redirect(url_for('premium_subscription'))
             
-            # Cria novo usuário
             hashed_password = generate_password_hash(password)
             db.execute('INSERT INTO users (email, password) VALUES (?, ?)',
                       (email, hashed_password))
@@ -609,7 +602,6 @@ def subscribe():
             user_id = db.lastrowid
             payment_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             
-            # Define a data de expiração conforme o plano
             if subscription_type == 'monthly':
                 expiry_date = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
                 payment_amount = 6.99
@@ -617,7 +609,6 @@ def subscribe():
                 expiry_date = (datetime.now() + timedelta(days=365)).strftime('%Y-%m-%d')
                 payment_amount = 80.99
             
-            # Registra a assinatura como pendente
             db.execute('''
                 INSERT INTO subscriptions (
                     user_id, subscription_type, payment_amount, 
@@ -627,13 +618,12 @@ def subscribe():
             
             db.commit()
             
-            # Redireciona para o PagBank conforme o plano escolhido
             return redirect(PAGBANK_LINKS[subscription_type])
             
         except Exception as e:
             db.rollback()
-            logger.error(f"Erro ao processar assinatura: {str(e)}")
-            flash('Erro ao processar assinatura. Por favor, tente novamente.', 'danger')
+            logger.error(f"Subscription error: {str(e)}")
+            flash('Subscription error. Please try again.', 'danger')
             return redirect(url_for('premium_subscription'))
         finally:
             db.close()
@@ -645,11 +635,11 @@ def subscribe():
 
 @app.errorhandler(404)
 def page_not_found(e):
-    return render_template('error.html', message="Página não encontrada"), 404
+    return render_template('error.html', message="Page not found"), 404
 
 @app.errorhandler(500)
 def internal_server_error(e):
-    return render_template('error.html', message="Erro interno do servidor"), 500
+    return render_template('error.html', message="Internal server error"), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
