@@ -10,9 +10,9 @@ from wtforms import StringField, PasswordField, HiddenField
 from wtforms.validators import DataRequired, Email
 import json
 
-# Configurações básicas com CSRF habilitado
 app = Flask(__name__)
 
+# Configurações atualizadas para o Render
 app.config.update(
     SECRET_KEY=os.environ.get('SECRET_KEY', os.urandom(32).hex()),
     WTF_CSRF_ENABLED=True,
@@ -22,7 +22,9 @@ app.config.update(
     SESSION_COOKIE_SAMESITE='Lax',
     PERMANENT_SESSION_LIFETIME=timedelta(minutes=30),
     TEMPLATES_AUTO_RELOAD=True,
-    DATABASE=os.path.join(app.instance_path, 'matches.db')
+    DATABASE=os.path.join(app.instance_path, 'matches.db'),
+    SQLALCHEMY_DATABASE_URI='sqlite:///' + os.path.join(app.instance_path, 'matches.db'),
+    SQLALCHEMY_TRACK_MODIFICATIONS=False
 )
 
 csrf = CSRFProtect(app)
@@ -53,7 +55,6 @@ class FlaskJSONEncoder(json.JSONEncoder):
 
 app.json_encoder = FlaskJSONEncoder
 
-# Configuração de logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -252,8 +253,14 @@ def premium_subscription():
             user = db.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
             
             if user:
-                flash('Este email já está cadastrado. Por favor, faça login.', 'warning')
-                return redirect(url_for('user_login'))
+                if check_password_hash(user['password'], password):
+                    session['logged_in'] = True
+                    session['user_id'] = user['id']
+                    session['is_premium'] = check_premium_status(user['id'])
+                    return redirect(PAGBANK_LINKS[subscription_type])
+                else:
+                    flash('Senha incorreta', 'danger')
+                    return redirect(url_for('user_login'))
             
             hashed_password = generate_password_hash(password)
             db.execute('INSERT INTO users (email, password) VALUES (?, ?)', (email, hashed_password))
@@ -275,6 +282,10 @@ def premium_subscription():
             ''', (user_id, subscription_type, payment_amount, payment_date, expiry_date, 'pending'))
             
             db.commit()
+            
+            session['logged_in'] = True
+            session['user_id'] = user_id
+            session['is_premium'] = False
             
             return redirect(PAGBANK_LINKS[subscription_type])
             
@@ -361,15 +372,18 @@ def admin_dashboard():
 @admin_required
 def add_match():
     if request.method == 'POST':
+        form_data = request.form
         db = get_db()
         try:
-            home_team = request.form.get('home_team', '').strip()
-            away_team = request.form.get('away_team', '').strip()
-            match_date = request.form.get('match_date', '').strip()
-            match_time = request.form.get('match_time', '').strip()
+            home_team = form_data.get('home_team', '').strip()
+            away_team = form_data.get('away_team', '').strip()
+            match_date = form_data.get('match_date', '').strip()
+            match_time = form_data.get('match_time', '').strip()
+            
             if not home_team or not away_team or not match_date or not match_time:
-                flash('Fill all required fields', 'danger')
+                flash('Preencha todos os campos obrigatórios', 'danger')
                 return redirect(url_for('add_match'))
+                
             db.execute('''
                 INSERT INTO matches (
                     home_team, away_team, competition, location, 
@@ -387,11 +401,11 @@ def add_match():
             ''', (
                 home_team,
                 away_team,
-                request.form.get('competition', ''),
-                request.form.get('location', ''),
+                form_data.get('competition', ''),
+                form_data.get('location', ''),
                 match_date,
                 match_time,
-                request.form.get('predicted_score', ''),
+                form_data.get('predicted_score', ''),
                 get_numeric_value('home_win_percent'),
                 get_numeric_value('away_win_percent'),
                 get_numeric_value('draw_percent'),
@@ -416,11 +430,11 @@ def add_match():
                 get_numeric_value('fouls_away'),
                 get_numeric_value('offsides_home'),
                 get_numeric_value('offsides_away'),
-                request.form.get('safe_prediction', ''),
-                request.form.get('risk_prediction', ''),
-                request.form.get('details', ''),
+                form_data.get('safe_prediction', ''),
+                form_data.get('risk_prediction', ''),
+                form_data.get('details', ''),
                 get_numeric_value('display_order'),
-                request.form.get('color_scheme', 'blue')
+                form_data.get('color_scheme', 'blue')
             ))
             db.commit()
             flash('Match added successfully!', 'success')
@@ -579,6 +593,7 @@ def payment_verify():
                     WHERE id = ?
                 ''', (recent_payments['id'],))
                 db.commit()
+                session['is_premium'] = True
                 flash('Payment confirmed! Premium access activated.', 'success')
                 return redirect(url_for('index'))
             else:
