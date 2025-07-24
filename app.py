@@ -69,8 +69,9 @@ def init_db():
     with app.app_context():
         os.makedirs(app.instance_path, exist_ok=True)
         db = get_db()
+        cursor = db.cursor()
         try:
-            db.execute('''
+            cursor.execute('''
                 CREATE TABLE IF NOT EXISTS users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     email TEXT UNIQUE NOT NULL,
@@ -81,7 +82,7 @@ def init_db():
                 )
             ''')
             
-            db.execute('''
+            cursor.execute('''
                 CREATE TABLE IF NOT EXISTS subscriptions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id INTEGER NOT NULL,
@@ -94,7 +95,7 @@ def init_db():
                 )
             ''')
             
-            db.execute('''
+            cursor.execute('''
                 CREATE TABLE IF NOT EXISTS matches (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     home_team TEXT NOT NULL,
@@ -189,6 +190,7 @@ def premium_subscription():
         db = None
         try:
             db = get_db()
+            cursor = db.cursor()
             email = form.email.data.lower().strip()
             password = form.password.data
             subscription_type = form.subscription_type.data
@@ -198,7 +200,7 @@ def premium_subscription():
                 return redirect(url_for('premium_subscription'))
             
             # Verifica se usuário já existe
-            user = db.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
+            user = cursor.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
             
             if user:
                 if check_password_hash(user['password'], password):
@@ -213,8 +215,8 @@ def premium_subscription():
             
             # Cria novo usuário
             hashed_pw = generate_password_hash(password)
-            db.execute('INSERT INTO users (email, password) VALUES (?, ?)', (email, hashed_pw))
-            user_id = db.lastrowid
+            cursor.execute('INSERT INTO users (email, password) VALUES (?, ?)', (email, hashed_pw))
+            user_id = cursor.lastrowid
             
             # Configura assinatura
             payment_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -225,7 +227,7 @@ def premium_subscription():
                 expiry_date = (datetime.now() + timedelta(days=365)).strftime('%Y-%m-%d')
                 amount = 80.99
             
-            db.execute('''
+            cursor.execute('''
                 INSERT INTO subscriptions 
                 (user_id, subscription_type, payment_amount, payment_date, expiry_date)
                 VALUES (?, ?, ?, ?, ?)
@@ -258,9 +260,10 @@ def user_login():
     if request.method == 'POST' and form.validate():
         db = None
         try:
-            email = form.email.data.lower().strip()
             db = get_db()
-            user = db.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
+            cursor = db.cursor()
+            email = form.email.data.lower().strip()
+            user = cursor.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
             
             if user and check_password_hash(user['password'], form.password.data):
                 session['user_id'] = user['id']
@@ -280,7 +283,7 @@ def user_login():
             if db:
                 db.close()
     
-    return render_template('login.html', form=form)
+    return render_template('login.html', form=form, datetime=datetime)
 
 @app.route('/logout')
 def logout():
@@ -301,13 +304,14 @@ def payment_verify():
         db = None
         try:
             db = get_db()
-            user = db.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
+            cursor = db.cursor()
+            user = cursor.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
             
             if not user:
                 flash('Email não encontrado', 'danger')
                 return redirect(url_for('payment_verify'))
             
-            subscription = db.execute('''
+            subscription = cursor.execute('''
                 SELECT * FROM subscriptions 
                 WHERE user_id = ? 
                 ORDER BY payment_date DESC 
@@ -315,14 +319,14 @@ def payment_verify():
             ''', (user['id'],)).fetchone()
             
             if subscription:
-                db.execute('''
+                cursor.execute('''
                     UPDATE users SET 
                         is_premium = 1,
                         premium_expiry = ?
                     WHERE id = ?
                 ''', (subscription['expiry_date'], user['id']))
                 
-                db.execute('''
+                cursor.execute('''
                     UPDATE subscriptions SET 
                         is_active = 1
                     WHERE id = ?
@@ -366,17 +370,28 @@ def admin_login():
 @app.route('/admin/dashboard')
 @admin_required
 def admin_dashboard():
-    db = get_db()
-    matches = db.execute('SELECT * FROM matches ORDER BY match_date, match_time').fetchall()
-    db.close()
-    return render_template('admin/dashboard.html', matches=matches, datetime=datetime)
+    db = None
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        matches = cursor.execute('SELECT * FROM matches ORDER BY match_date, match_time').fetchall()
+        return render_template('admin/dashboard.html', matches=matches, datetime=datetime)
+    except Exception as e:
+        logger.error(f"Erro no dashboard admin: {e}")
+        flash('Ocorreu um erro ao carregar o painel administrativo', 'danger')
+        return redirect(url_for('home'))
+    finally:
+        if db:
+            db.close()
 
 @app.route('/admin/matches/add', methods=['GET', 'POST'])
 @admin_required
 def add_match():
     if request.method == 'POST':
+        db = None
         try:
             db = get_db()
+            cursor = db.cursor()
             # Coletar todos os dados do formulário
             match_data = {
                 'home_team': request.form['home_team'],
@@ -417,7 +432,7 @@ def add_match():
                 'color_scheme': request.form.get('color_scheme', 'blue')
             }
             
-            db.execute('''
+            cursor.execute('''
                 INSERT INTO matches (
                     home_team, away_team, competition, location, match_date, match_time,
                     predicted_score, home_win_percent, away_win_percent, draw_percent,
@@ -450,122 +465,134 @@ def add_match():
             logger.error(f"Erro ao adicionar partida: {e}")
             flash('Erro ao adicionar partida', 'danger')
         finally:
-            db.close()
+            if db:
+                db.close()
     
     return render_template('admin/add_match.html', datetime=datetime)
 
 @app.route('/admin/matches/edit/<int:match_id>', methods=['GET', 'POST'])
 @admin_required
 def edit_match(match_id):
-    db = get_db()
-    match = db.execute('SELECT * FROM matches WHERE id = ?', (match_id,)).fetchone()
-    
-    if not match:
-        flash('Partida não encontrada', 'danger')
-        return redirect(url_for('admin_dashboard'))
-    
-    if request.method == 'POST':
-        try:
-            match_data = {
-                'id': match_id,
-                'home_team': request.form['home_team'],
-                'away_team': request.form['away_team'],
-                'competition': request.form.get('competition', ''),
-                'location': request.form.get('location', ''),
-                'match_date': request.form['match_date'],
-                'match_time': request.form['match_time'],
-                'predicted_score': request.form.get('predicted_score', ''),
-                'home_win_percent': float(request.form.get('home_win_percent', 0)),
-                'away_win_percent': float(request.form.get('away_win_percent', 0)),
-                'draw_percent': float(request.form.get('draw_percent', 0)),
-                'over_05_percent': float(request.form.get('over_05_percent', 0)),
-                'over_15_percent': float(request.form.get('over_15_percent', 0)),
-                'over_25_percent': float(request.form.get('over_25_percent', 0)),
-                'over_35_percent': float(request.form.get('over_35_percent', 0)),
-                'btts_percent': float(request.form.get('btts_percent', 0)),
-                'btts_no_percent': float(request.form.get('btts_no_percent', 0)),
-                'yellow_cards_predicted': float(request.form.get('yellow_cards_predicted', 0)),
-                'red_cards_predicted': float(request.form.get('red_cards_predicted', 0)),
-                'corners_predicted': float(request.form.get('corners_predicted', 0)),
-                'corners_home_predicted': float(request.form.get('corners_home_predicted', 0)),
-                'corners_away_predicted': float(request.form.get('corners_away_predicted', 0)),
-                'possession_home': float(request.form.get('possession_home', 50)),
-                'possession_away': float(request.form.get('possession_away', 50)),
-                'shots_on_target_home': int(request.form.get('shots_on_target_home', 0)),
-                'shots_on_target_away': int(request.form.get('shots_on_target_away', 0)),
-                'shots_off_target_home': int(request.form.get('shots_off_target_home', 0)),
-                'shots_off_target_away': int(request.form.get('shots_off_target_away', 0)),
-                'fouls_home': int(request.form.get('fouls_home', 0)),
-                'fouls_away': int(request.form.get('fouls_away', 0)),
-                'offsides_home': int(request.form.get('offsides_home', 0)),
-                'offsides_away': int(request.form.get('offsides_away', 0)),
-                'details': request.form.get('details', ''),
-                'safe_prediction': request.form.get('safe_prediction', ''),
-                'risk_prediction': request.form.get('risk_prediction', ''),
-                'display_order': int(request.form.get('display_order', 0)),
-                'color_scheme': request.form.get('color_scheme', 'blue')
-            }
-            
-            db.execute('''
-                UPDATE matches SET
-                    home_team = :home_team,
-                    away_team = :away_team,
-                    competition = :competition,
-                    location = :location,
-                    match_date = :match_date,
-                    match_time = :match_time,
-                    predicted_score = :predicted_score,
-                    home_win_percent = :home_win_percent,
-                    away_win_percent = :away_win_percent,
-                    draw_percent = :draw_percent,
-                    over_05_percent = :over_05_percent,
-                    over_15_percent = :over_15_percent,
-                    over_25_percent = :over_25_percent,
-                    over_35_percent = :over_35_percent,
-                    btts_percent = :btts_percent,
-                    btts_no_percent = :btts_no_percent,
-                    yellow_cards_predicted = :yellow_cards_predicted,
-                    red_cards_predicted = :red_cards_predicted,
-                    corners_predicted = :corners_predicted,
-                    corners_home_predicted = :corners_home_predicted,
-                    corners_away_predicted = :corners_away_predicted,
-                    possession_home = :possession_home,
-                    possession_away = :possession_away,
-                    shots_on_target_home = :shots_on_target_home,
-                    shots_on_target_away = :shots_on_target_away,
-                    shots_off_target_home = :shots_off_target_home,
-                    shots_off_target_away = :shots_off_target_away,
-                    fouls_home = :fouls_home,
-                    fouls_away = :fouls_away,
-                    offsides_home = :offsides_home,
-                    offsides_away = :offsides_away,
-                    details = :details,
-                    safe_prediction = :safe_prediction,
-                    risk_prediction = :risk_prediction,
-                    display_order = :display_order,
-                    color_scheme = :color_scheme
-                WHERE id = :id
-            ''', match_data)
-            
-            db.commit()
-            flash('Partida atualizada com sucesso!', 'success')
+    db = None
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        match = cursor.execute('SELECT * FROM matches WHERE id = ?', (match_id,)).fetchone()
+        
+        if not match:
+            flash('Partida não encontrada', 'danger')
             return redirect(url_for('admin_dashboard'))
-            
-        except Exception as e:
-            db.rollback()
-            logger.error(f"Erro ao atualizar partida: {e}")
-            flash('Erro ao atualizar partida', 'danger')
-        finally:
-            db.close()
+        
+        if request.method == 'POST':
+            try:
+                match_data = {
+                    'id': match_id,
+                    'home_team': request.form['home_team'],
+                    'away_team': request.form['away_team'],
+                    'competition': request.form.get('competition', ''),
+                    'location': request.form.get('location', ''),
+                    'match_date': request.form['match_date'],
+                    'match_time': request.form['match_time'],
+                    'predicted_score': request.form.get('predicted_score', ''),
+                    'home_win_percent': float(request.form.get('home_win_percent', 0)),
+                    'away_win_percent': float(request.form.get('away_win_percent', 0)),
+                    'draw_percent': float(request.form.get('draw_percent', 0)),
+                    'over_05_percent': float(request.form.get('over_05_percent', 0)),
+                    'over_15_percent': float(request.form.get('over_15_percent', 0)),
+                    'over_25_percent': float(request.form.get('over_25_percent', 0)),
+                    'over_35_percent': float(request.form.get('over_35_percent', 0)),
+                    'btts_percent': float(request.form.get('btts_percent', 0)),
+                    'btts_no_percent': float(request.form.get('btts_no_percent', 0)),
+                    'yellow_cards_predicted': float(request.form.get('yellow_cards_predicted', 0)),
+                    'red_cards_predicted': float(request.form.get('red_cards_predicted', 0)),
+                    'corners_predicted': float(request.form.get('corners_predicted', 0)),
+                    'corners_home_predicted': float(request.form.get('corners_home_predicted', 0)),
+                    'corners_away_predicted': float(request.form.get('corners_away_predicted', 0)),
+                    'possession_home': float(request.form.get('possession_home', 50)),
+                    'possession_away': float(request.form.get('possession_away', 50)),
+                    'shots_on_target_home': int(request.form.get('shots_on_target_home', 0)),
+                    'shots_on_target_away': int(request.form.get('shots_on_target_away', 0)),
+                    'shots_off_target_home': int(request.form.get('shots_off_target_home', 0)),
+                    'shots_off_target_away': int(request.form.get('shots_off_target_away', 0)),
+                    'fouls_home': int(request.form.get('fouls_home', 0)),
+                    'fouls_away': int(request.form.get('fouls_away', 0)),
+                    'offsides_home': int(request.form.get('offsides_home', 0)),
+                    'offsides_away': int(request.form.get('offsides_away', 0)),
+                    'details': request.form.get('details', ''),
+                    'safe_prediction': request.form.get('safe_prediction', ''),
+                    'risk_prediction': request.form.get('risk_prediction', ''),
+                    'display_order': int(request.form.get('display_order', 0)),
+                    'color_scheme': request.form.get('color_scheme', 'blue')
+                }
+                
+                cursor.execute('''
+                    UPDATE matches SET
+                        home_team = :home_team,
+                        away_team = :away_team,
+                        competition = :competition,
+                        location = :location,
+                        match_date = :match_date,
+                        match_time = :match_time,
+                        predicted_score = :predicted_score,
+                        home_win_percent = :home_win_percent,
+                        away_win_percent = :away_win_percent,
+                        draw_percent = :draw_percent,
+                        over_05_percent = :over_05_percent,
+                        over_15_percent = :over_15_percent,
+                        over_25_percent = :over_25_percent,
+                        over_35_percent = :over_35_percent,
+                        btts_percent = :btts_percent,
+                        btts_no_percent = :btts_no_percent,
+                        yellow_cards_predicted = :yellow_cards_predicted,
+                        red_cards_predicted = :red_cards_predicted,
+                        corners_predicted = :corners_predicted,
+                        corners_home_predicted = :corners_home_predicted,
+                        corners_away_predicted = :corners_away_predicted,
+                        possession_home = :possession_home,
+                        possession_away = :possession_away,
+                        shots_on_target_home = :shots_on_target_home,
+                        shots_on_target_away = :shots_on_target_away,
+                        shots_off_target_home = :shots_off_target_home,
+                        shots_off_target_away = :shots_off_target_away,
+                        fouls_home = :fouls_home,
+                        fouls_away = :fouls_away,
+                        offsides_home = :offsides_home,
+                        offsides_away = :offsides_away,
+                        details = :details,
+                        safe_prediction = :safe_prediction,
+                        risk_prediction = :risk_prediction,
+                        display_order = :display_order,
+                        color_scheme = :color_scheme
+                    WHERE id = :id
+                ''', match_data)
+                
+                db.commit()
+                flash('Partida atualizada com sucesso!', 'success')
+                return redirect(url_for('admin_dashboard'))
+                
+            except Exception as e:
+                db.rollback()
+                logger.error(f"Erro ao atualizar partida: {e}")
+                flash('Erro ao atualizar partida', 'danger')
+        
+        return render_template('admin/edit_match.html', match=match, datetime=datetime)
     
-    return render_template('admin/edit_match.html', match=match, datetime=datetime)
+    except Exception as e:
+        logger.error(f"Erro ao carregar partida para edição: {e}")
+        flash('Erro ao carregar partida', 'danger')
+        return redirect(url_for('admin_dashboard'))
+    finally:
+        if db:
+            db.close()
 
 @app.route('/admin/matches/delete/<int:match_id>', methods=['POST'])
 @admin_required
 def delete_match(match_id):
-    db = get_db()
+    db = None
     try:
-        db.execute('DELETE FROM matches WHERE id = ?', (match_id,))
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute('DELETE FROM matches WHERE id = ?', (match_id,))
         db.commit()
         flash('Partida excluída com sucesso', 'success')
     except Exception as e:
@@ -573,7 +600,8 @@ def delete_match(match_id):
         logger.error(f"Erro ao excluir partida: {e}")
         flash('Erro ao excluir partida', 'danger')
     finally:
-        db.close()
+        if db:
+            db.close()
     
     return redirect(url_for('admin_dashboard'))
 
@@ -593,17 +621,18 @@ def premium_matches():
     db = None
     try:
         db = get_db()
+        cursor = db.cursor()
         today = datetime.now().strftime('%Y-%m-%d')
         
         # Obter partidas de hoje
-        today_matches = db.execute('''
+        today_matches = cursor.execute('''
             SELECT * FROM matches 
             WHERE match_date = ?
             ORDER BY match_time ASC
         ''', (today,)).fetchall()
         
         # Obter próximas partidas
-        other_matches = db.execute('''
+        other_matches = cursor.execute('''
             SELECT * FROM matches 
             WHERE match_date > ?
             ORDER BY match_date ASC, match_time ASC
