@@ -248,7 +248,7 @@ def premium_subscription():
             if db:
                 db.close()
     
-    return render_template('premium.html', form=form)
+    return render_template('premium.html', form=form, datetime=datetime)
 
 @app.route('/login', methods=['GET', 'POST'])
 def user_login():
@@ -344,7 +344,7 @@ def payment_verify():
             if db:
                 db.close()
     
-    return render_template('payment_verify.html')
+    return render_template('payment_verify.html', datetime=datetime)
 
 # Rotas Admin
 @app.route('/admin/login', methods=['GET', 'POST'])
@@ -361,7 +361,7 @@ def admin_login():
         else:
             flash('Credenciais inválidas', 'danger')
     
-    return render_template('admin/login.html')
+    return render_template('admin/login.html', datetime=datetime)
 
 @app.route('/admin/dashboard')
 @admin_required
@@ -369,7 +369,7 @@ def admin_dashboard():
     db = get_db()
     matches = db.execute('SELECT * FROM matches ORDER BY match_date, match_time').fetchall()
     db.close()
-    return render_template('admin/dashboard.html', matches=matches)
+    return render_template('admin/dashboard.html', matches=matches, datetime=datetime)
 
 @app.route('/admin/matches/add', methods=['GET', 'POST'])
 @admin_required
@@ -452,7 +452,7 @@ def add_match():
         finally:
             db.close()
     
-    return render_template('admin/add_match.html')
+    return render_template('admin/add_match.html', datetime=datetime)
 
 @app.route('/admin/matches/edit/<int:match_id>', methods=['GET', 'POST'])
 @admin_required
@@ -558,7 +558,7 @@ def edit_match(match_id):
         finally:
             db.close()
     
-    return render_template('admin/edit_match.html', match=match)
+    return render_template('admin/edit_match.html', match=match, datetime=datetime)
 
 @app.route('/admin/matches/delete/<int:match_id>', methods=['POST'])
 @admin_required
@@ -613,7 +613,8 @@ def premium_matches():
         return render_template('premium_matches.html', 
                             today_matches=today_matches,
                             other_matches=other_matches,
-                            last_updated=datetime.now().strftime('%d/%m/%Y %H:%M'))
+                            last_updated=datetime.now().strftime('%d/%m/%Y %H:%M'),
+                            datetime=datetime)
         
     except Exception as e:
         logger.error(f"Erro ao carregar partidas: {e}")
