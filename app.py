@@ -16,10 +16,14 @@ app.config.update(
     WTF_CSRF_SECRET_KEY=os.environ.get('CSRF_SECRET_KEY', 'outra-chave-secreta-456'),
     DATABASE=os.path.join(app.instance_path, 'database.db'),
     SESSION_COOKIE_SECURE=True,
-    SESSION_COOKIE_SAMESITE='Lax'
+    SESSION_COOKIE_SAMESITE='Lax',
+    WTF_CSRF_TIME_LIMIT=3600  # 1 hora para expiração do token
 )
 
+# Configuração do CSRF
 csrf = CSRFProtect(app)
+csrf.init_app(app)
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
