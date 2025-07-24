@@ -10,6 +10,7 @@
                 </div>
                 <div class="card-body">
                     <form method="POST">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <div class="row g-3">
                             <div class="col-md-6">
                                 <label for="home_team" class="form-label">Time da Casa</label>
@@ -40,7 +41,7 @@
                             
                             <div class="col-12">
                                 <hr>
-                                <h5>Previsões</h5>
+                                <h5>Previsões Básicas</h5>
                             </div>
                             
                             <div class="col-md-4">
@@ -64,11 +65,6 @@
                             </div>
 
                             <div class="col-md-4">
-                                <label for="over_05_percent" class="form-label">% Over 0.5</label>
-                                <input type="number" class="form-control" id="over_05_percent" name="over_05_percent" min="0" max="100" value="{{ match.over_05_percent }}">
-                            </div>
-
-                            <div class="col-md-4">
                                 <label for="over_15_percent" class="form-label">% Over 1.5</label>
                                 <input type="number" class="form-control" id="over_15_percent" name="over_15_percent" min="0" max="100" value="{{ match.over_15_percent }}">
                             </div>
@@ -79,103 +75,78 @@
                             </div>
 
                             <div class="col-md-4">
-                                <label for="over_35_percent" class="form-label">% Over 3.5</label>
-                                <input type="number" class="form-control" id="over_35_percent" name="over_35_percent" min="0" max="100" value="{{ match.over_35_percent }}">
-                            </div>
-
-                            <div class="col-md-4">
                                 <label for="btts_percent" class="form-label">% Ambos Marcam</label>
                                 <input type="number" class="form-control" id="btts_percent" name="btts_percent" min="0" max="100" value="{{ match.btts_percent }}">
                             </div>
 
+                            <div class="col-12">
+                                <hr>
+                                <h5>Estatísticas de Cartões e Escanteios</h5>
+                            </div>
+
                             <div class="col-md-4">
-                                <label for="btts_no_percent" class="form-label">% Ambos Não Marcam</label>
-                                <input type="number" class="form-control" id="btts_no_percent" name="btts_no_percent" min="0" max="100" value="{{ match.btts_no_percent }}">
+                                <label for="yellow_cards_predicted" class="form-label">Cartões Amarelos</label>
+                                <input type="number" step="0.1" class="form-control" id="yellow_cards_predicted" name="yellow_cards_predicted" value="{{ match.yellow_cards_predicted }}">
+                            </div>
+
+                            <div class="col-md-4">
+                                <label for="red_cards_predicted" class="form-label">Cartões Vermelhos</label>
+                                <input type="number" step="0.1" class="form-control" id="red_cards_predicted" name="red_cards_predicted" value="{{ match.red_cards_predicted }}">
+                            </div>
+
+                            <div class="col-md-4">
+                                <label for="corners_predicted" class="form-label">Escanteios Total</label>
+                                <input type="number" step="0.1" class="form-control" id="corners_predicted" name="corners_predicted" value="{{ match.corners_predicted }}">
+                            </div>
+
+                            <div class="col-md-6">
+                                <label for="corners_home_predicted" class="form-label">Escanteios Casa</label>
+                                <input type="number" step="0.1" class="form-control" id="corners_home_predicted" name="corners_home_predicted" value="{{ match.corners_home_predicted }}">
+                            </div>
+
+                            <div class="col-md-6">
+                                <label for="corners_away_predicted" class="form-label">Escanteios Visitante</label>
+                                <input type="number" step="0.1" class="form-control" id="corners_away_predicted" name="corners_away_predicted" value="{{ match.corners_away_predicted }}">
                             </div>
 
                             <div class="col-12">
                                 <hr>
-                                <h5>Estatísticas Avançadas</h5>
+                                <h5>Outras Estatísticas</h5>
                             </div>
 
-                            <div class="col-md-4">
-                                <label for="yellow_cards_predicted" class="form-label">Cartões Amarelos Previstos</label>
-                                <input type="number" step="0.5" class="form-control" id="yellow_cards_predicted" name="yellow_cards_predicted" value="{{ match.yellow_cards_predicted }}">
-                            </div>
-
-                            <div class="col-md-4">
-                                <label for="red_cards_predicted" class="form-label">Cartões Vermelhos Previstos</label>
-                                <input type="number" step="0.5" class="form-control" id="red_cards_predicted" name="red_cards_predicted" value="{{ match.red_cards_predicted }}">
-                            </div>
-
-                            <div class="col-md-4">
-                                <label for="corners_predicted" class="form-label">Escanteios Previstos</label>
-                                <input type="number" step="0.5" class="form-control" id="corners_predicted" name="corners_predicted" value="{{ match.corners_predicted }}">
-                            </div>
-
-                            <div class="col-md-4">
-                                <label for="corners_home_predicted" class="form-label">Escanteios Casa</label>
-                                <input type="number" step="0.5" class="form-control" id="corners_home_predicted" name="corners_home_predicted" value="{{ match.corners_home_predicted }}">
-                            </div>
-
-                            <div class="col-md-4">
-                                <label for="corners_away_predicted" class="form-label">Escanteios Visitante</label>
-                                <input type="number" step="0.5" class="form-control" id="corners_away_predicted" name="corners_away_predicted" value="{{ match.corners_away_predicted }}">
-                            </div>
-
-                            <div class="col-md-4">
+                            <div class="col-md-6">
                                 <label for="possession_home" class="form-label">Posse de Bola Casa (%)</label>
                                 <input type="number" class="form-control" id="possession_home" name="possession_home" min="0" max="100" value="{{ match.possession_home }}">
                             </div>
 
-                            <div class="col-md-4">
+                            <div class="col-md-6">
                                 <label for="possession_away" class="form-label">Posse de Bola Visitante (%)</label>
                                 <input type="number" class="form-control" id="possession_away" name="possession_away" min="0" max="100" value="{{ match.possession_away }}">
                             </div>
 
-                            <div class="col-md-4">
+                            <div class="col-md-6">
                                 <label for="shots_on_target_home" class="form-label">Chutes no Gol (Casa)</label>
                                 <input type="number" class="form-control" id="shots_on_target_home" name="shots_on_target_home" value="{{ match.shots_on_target_home }}">
                             </div>
 
-                            <div class="col-md-4">
+                            <div class="col-md-6">
                                 <label for="shots_on_target_away" class="form-label">Chutes no Gol (Visitante)</label>
                                 <input type="number" class="form-control" id="shots_on_target_away" name="shots_on_target_away" value="{{ match.shots_on_target_away }}">
                             </div>
 
-                            <div class="col-md-4">
-                                <label for="shots_off_target_home" class="form-label">Chutes Fora (Casa)</label>
-                                <input type="number" class="form-control" id="shots_off_target_home" name="shots_off_target_home" value="{{ match.shots_off_target_home }}">
-                            </div>
-
-                            <div class="col-md-4">
-                                <label for="shots_off_target_away" class="form-label">Chutes Fora (Visitante)</label>
-                                <input type="number" class="form-control" id="shots_off_target_away" name="shots_off_target_away" value="{{ match.shots_off_target_away }}">
-                            </div>
-
-                            <div class="col-md-4">
+                            <div class="col-md-6">
                                 <label for="fouls_home" class="form-label">Faltas (Casa)</label>
                                 <input type="number" class="form-control" id="fouls_home" name="fouls_home" value="{{ match.fouls_home }}">
                             </div>
 
-                            <div class="col-md-4">
+                            <div class="col-md-6">
                                 <label for="fouls_away" class="form-label">Faltas (Visitante)</label>
                                 <input type="number" class="form-control" id="fouls_away" name="fouls_away" value="{{ match.fouls_away }}">
                             </div>
 
-                            <div class="col-md-4">
-                                <label for="offsides_home" class="form-label">Impedimentos (Casa)</label>
-                                <input type="number" class="form-control" id="offsides_home" name="offsides_home" value="{{ match.offsides_home }}">
-                            </div>
-
-                            <div class="col-md-4">
-                                <label for="offsides_away" class="form-label">Impedimentos (Visitante)</label>
-                                <input type="number" class="form-control" id="offsides_away" name="offsides_away" value="{{ match.offsides_away }}">
-                            </div>
-
                             <div class="col-12">
                                 <hr>
-                                <h5>Outras Informações</h5>
+                                <h5>Análise e Configurações</h5>
                             </div>
 
                             <div class="col-12">
@@ -193,12 +164,12 @@
                                 <input type="text" class="form-control" id="risk_prediction" name="risk_prediction" value="{{ match.risk_prediction or '' }}" placeholder="Ex: Empate">
                             </div>
 
-                            <div class="col-md-4">
+                            <div class="col-md-6">
                                 <label for="display_order" class="form-label">Ordem de Exibição</label>
                                 <input type="number" class="form-control" id="display_order" name="display_order" value="{{ match.display_order }}">
                             </div>
 
-                            <div class="col-md-4">
+                            <div class="col-md-6">
                                 <label for="color_scheme" class="form-label">Esquema de Cores</label>
                                 <select class="form-select" id="color_scheme" name="color_scheme">
                                     <option value="blue" {% if match.color_scheme == 'blue' %}selected{% endif %}>Azul</option>

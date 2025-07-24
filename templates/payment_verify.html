@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h3 class="mb-0">Verificar Pagamento</h3>
+                </div>
+                <div class="card-body">
+                    <p class="mb-4">Digite seu email para verificar o status do seu pagamento e ativar seu acesso premium.</p>
+                    
+                    <form method="POST" action="{{ url_for('payment_verify') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <div class="mb-3">
+                            <label for="email" class="form-label">Email</label>
+                            <input type="email" class="form-control" id="email" name="email" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100">Verificar</button>
+                    </form>
+                    
+                    <div class="mt-4">
+                        <h5>Problemas com o pagamento?</h5>
+                        <p>Se você já efetuou o pagamento mas ainda não tem acesso, entre em contato conosco.</p>
+                        <a href="mailto:suporte@alfaai.com" class="btn btn-outline-secondary">Contatar Suporte</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

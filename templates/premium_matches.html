@@ -1,0 +1,398 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-5 text-center">
+    <h1 class="fw-bold mb-3">Previsões de Jogos</h1>
+    <p class="lead">Análises precisas com inteligência artificial exclusiva para assinantes Premium</p>
+</div>
+
+{% if today_matches or other_matches %}
+    <!-- Jogos de Hoje -->
+    <div class="mb-4">
+        <h2 class="fw-bold mb-4 text-center">
+            <i class="bi bi-calendar-check"></i> Jogos de Hoje
+            <span class="badge bg-primary ms-2">{{ today_matches|length }}</span>
+        </h2>
+        
+        {% if today_matches %}
+            <div class="row g-4">
+                {% for match in today_matches %}
+                    <div class="col-lg-6">
+                        <div class="card match-card {{ match.color_scheme }}-scheme">
+                            <div class="match-header">
+                                <div class="today-badge">
+                                    <i class="bi bi-lightning-charge"></i> HOJE
+                                </div>
+                                
+                                {% if match.competition %}
+                                    <div class="competition-badge">
+                                        {{ match.competition[:20] }}{% if match.competition|length > 20 %}...{% endif %}
+                                    </div>
+                                {% endif %}
+                                
+                                <div class="d-flex justify-content-center align-items-center mb-3">
+                                    <div class="text-end pe-3" style="flex: 1;">
+                                        <h4 class="mb-0 fw-bold">{{ match.home_team }}</h4>
+                                        <small class="opacity-75">{{ match.home_win_percent }}%</small>
+                                    </div>
+                                    
+                                    <div class="vs-circle bg-white text-dark rounded-circle d-flex align-items-center justify-content-center" 
+                                         style="width: 50px; height: 50px;">
+                                        <strong>VS</strong>
+                                    </div>
+                                    
+                                    <div class="text-start ps-3" style="flex: 1;">
+                                        <h4 class="mb-0 fw-bold">{{ match.away_team }}</h4>
+                                        <small class="opacity-75">{{ match.away_win_percent }}%</small>
+                                    </div>
+                                </div>
+                                
+                                <div class="d-flex justify-content-center gap-4 text-light opacity-75">
+                                    <span><i class="bi bi-geo-alt"></i> {{ match.location or 'N/D' }}</span>
+                                    <span><i class="bi bi-clock"></i> {{ match.match_time }}</span>
+                                </div>
+                            </div>
+                            
+                            <div class="card-body">
+                                <h5 class="mb-3">
+                                    <i class="bi bi-graph-up"></i> Estatísticas do Jogo
+                                </h5>
+                                
+                                <div class="row g-3 mb-4">
+                                    <div class="col-md-4">
+                                        <div class="card stat-card">
+                                            <div class="card-body text-center">
+                                                <h6 class="card-subtitle mb-2 text-muted">Placar Previsto</h6>
+                                                <h2 class="stat-value text-premium">{{ match.predicted_score or 'X-X' }}</h2>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="col-md-4">
+                                        <div class="card stat-card">
+                                            <div class="card-body">
+                                                <h6 class="card-subtitle mb-2 text-muted text-center">Probabilidades</h6>
+                                                <div class="mb-2">
+                                                    <div class="d-flex justify-content-between mb-1">
+                                                        <small>Casa</small>
+                                                        <small>{{ match.home_win_percent }}%</small>
+                                                    </div>
+                                                    <div class="progress">
+                                                        <div class="progress-bar bg-success" style="width: {{ match.home_win_percent }}%"></div>
+                                                    </div>
+                                                </div>
+                                                
+                                                <div class="mb-2">
+                                                    <div class="d-flex justify-content-between mb-1">
+                                                        <small>Empate</small>
+                                                        <small>{{ match.draw_percent }}%</small>
+                                                    </div>
+                                                    <div class="progress">
+                                                        <div class="progress-bar bg-warning" style="width: {{ match.draw_percent }}%"></div>
+                                                    </div>
+                                                </div>
+                                                
+                                                <div class="mb-2">
+                                                    <div class="d-flex justify-content-between mb-1">
+                                                        <small>Visitante</small>
+                                                        <small>{{ match.away_win_percent }}%</small>
+                                                    </div>
+                                                    <div class="progress">
+                                                        <div class="progress-bar bg-danger" style="width: {{ match.away_win_percent }}%"></div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="col-md-4">
+                                        <div class="card stat-card">
+                                            <div class="card-body">
+                                                <h6 class="card-subtitle mb-2 text-muted text-center">Outras Estatísticas</h6>
+                                                <div class="d-flex justify-content-between py-2 border-bottom">
+                                                    <span>Over 1.5:</span>
+                                                    <strong class="text-premium">{{ match.over_15_percent }}%</strong>
+                                                </div>
+                                                <div class="d-flex justify-content-between py-2 border-bottom">
+                                                    <span>Over 2.5:</span>
+                                                    <strong class="text-premium">{{ match.over_25_percent }}%</strong>
+                                                </div>
+                                                <div class="d-flex justify-content-between py-2">
+                                                    <span>Ambos marcam:</span>
+                                                    <strong class="text-premium">{{ match.btts_percent }}%</strong>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Premium Stats -->
+                                <div class="row g-3 mb-4">
+                                    <div class="col-md-6">
+                                        <div class="card stat-card">
+                                            <div class="card-body">
+                                                <h6 class="card-subtitle mb-2 text-muted text-center">Estatísticas Premium</h6>
+                                                <div class="row">
+                                                    <div class="col-6">
+                                                        <div class="d-flex justify-content-between py-2 border-bottom">
+                                                            <span>Cartões Amarelos:</span>
+                                                            <strong class="text-premium">{{ match.yellow_cards_predicted }}</strong>
+                                                        </div>
+                                                        <div class="d-flex justify-content-between py-2 border-bottom">
+                                                            <span>Cartões Vermelhos:</span>
+                                                            <strong class="text-premium">{{ match.red_cards_predicted }}</strong>
+                                                        </div>
+                                                        <div class="d-flex justify-content-between py-2 border-bottom">
+                                                            <span>Escanteios:</span>
+                                                            <strong class="text-premium">{{ match.corners_predicted }}</strong>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-6">
+                                                        <div class="d-flex justify-content-between py-2 border-bottom">
+                                                            <span>Posse de Bola:</span>
+                                                            <strong class="text-premium">{{ match.possession_home }}% - {{ match.possession_away }}%</strong>
+                                                        </div>
+                                                        <div class="d-flex justify-content-between py-2 border-bottom">
+                                                            <span>Faltas:</span>
+                                                            <strong class="text-premium">{{ match.fouls_home }} - {{ match.fouls_away }}</strong>
+                                                        </div>
+                                                        <div class="d-flex justify-content-between py-2">
+                                                            <span>Impedimentos:</span>
+                                                            <strong class="text-premium">{{ match.offsides_home }} - {{ match.offsides_away }}</strong>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="col-md-6">
+                                        <div class="card stat-card">
+                                            <div class="card-body">
+                                                <h6 class="card-subtitle mb-2 text-muted text-center">Finalizações</h6>
+                                                <div class="row">
+                                                    <div class="col-6">
+                                                        <div class="text-center mb-3">
+                                                            <h5 class="mb-1">{{ match.home_team[:15] }}{% if match.home_team|length > 15 %}...{% endif %}</h5>
+                                                            <div class="stat-value text-premium">{{ match.shots_on_target_home }}</div>
+                                                            <small>Chutes a gol</small>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-6">
+                                                        <div class="text-center mb-3">
+                                                            <h5 class="mb-1">{{ match.away_team[:15] }}{% if match.away_team|length > 15 %}...{% endif %}</h5>
+                                                            <div class="stat-value text-premium">{{ match.shots_on_target_away }}</div>
+                                                            <small>Chutes a gol</small>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                {% if match.details %}
+                                    <div class="card mt-3 border-premium">
+                                        <div class="card-header bg-premium-light">
+                                            <h5 class="mb-0"><i class="bi bi-bar-chart"></i> Análise do Jogo</h5>
+                                        </div>
+                                        <div class="card-body">
+                                            <p class="mb-0">{{ match.details }}</p>
+                                        </div>
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="alert alert-info text-center">
+                <i class="bi bi-info-circle"></i> Nenhum jogo encontrado para hoje.
+            </div>
+        {% endif %}
+    </div>
+    
+    <!-- Próximos Jogos -->
+    <div class="mb-4">
+        <h2 class="fw-bold mb-4 text-center">
+            <i class="bi bi-calendar-event"></i> Próximos Jogos
+            <span class="badge bg-primary ms-2">{{ other_matches|length }}</span>
+        </h2>
+        
+        {% if other_matches %}
+            <div class="row g-4">
+                {% for match in other_matches %}
+                    <div class="col-lg-6">
+                        <div class="card match-card {{ match.color_scheme }}-scheme">
+                            <div class="match-header">
+                                {% if match.competition %}
+                                    <div class="competition-badge">
+                                        {{ match.competition[:20] }}{% if match.competition|length > 20 %}...{% endif %}
+                                    </div>
+                                {% endif %}
+                                
+                                <div class="d-flex justify-content-center align-items-center mb-3">
+                                    <div class="text-end pe-3" style="flex: 1;">
+                                        <h4 class="mb-0 fw-bold">{{ match.home_team }}</h4>
+                                        <small class="opacity-75">{{ match.home_win_percent }}%</small>
+                                    </div>
+                                    
+                                    <div class="vs-circle bg-white text-dark rounded-circle d-flex align-items-center justify-content-center" 
+                                         style="width: 50px; height: 50px;">
+                                        <strong>VS</strong>
+                                    </div>
+                                    
+                                    <div class="text-start ps-3" style="flex: 1;">
+                                        <h4 class="mb-0 fw-bold">{{ match.away_team }}</h4>
+                                        <small class="opacity-75">{{ match.away_win_percent }}%</small>
+                                    </div>
+                                </div>
+                                
+                                <div class="d-flex justify-content-center gap-4 text-light opacity-75">
+                                    <span><i class="bi bi-geo-alt"></i> {{ match.location or 'N/D' }}</span>
+                                    <span><i class="bi bi-clock"></i> {{ match.match_time }}</span>
+                                    <span><i class="bi bi-calendar"></i> {{ match.match_date }}</span>
+                                </div>
+                            </div>
+                            
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="card stat-card">
+                                            <div class="card-body text-center">
+                                                <h6 class="card-subtitle mb-2 text-muted">Placar Previsto</h6>
+                                                <h2 class="stat-value text-premium">{{ match.predicted_score or 'X-X' }}</h2>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="card stat-card">
+                                            <div class="card-body text-center">
+                                                <h6 class="card-subtitle mb-2 text-muted">Probabilidade</h6>
+                                                <div class="d-flex justify-content-around mt-2">
+                                                    <div>
+                                                        <div class="stat-value text-success">{{ match.home_win_percent }}%</div>
+                                                        <small>Casa</small>
+                                                    </div>
+                                                    <div>
+                                                        <div class="stat-value text-warning">{{ match.draw_percent }}%</div>
+                                                        <small>Empate</small>
+                                                    </div>
+                                                    <div>
+                                                        <div class="stat-value text-danger">{{ match.away_win_percent }}%</div>
+                                                        <small>Visitante</small>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                {% if match.details %}
+                                    <div class="card mt-3 border-premium">
+                                        <div class="card-header bg-premium-light">
+                                            <h5 class="mb-0"><i class="bi bi-bar-chart"></i> Análise Premium</h5>
+                                        </div>
+                                        <div class="card-body">
+                                            <p class="mb-0">{{ match.details }}</p>
+                                        </div>
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="alert alert-info text-center">
+                <i class="bi bi-info-circle"></i> Nenhum outro jogo agendado.
+            </div>
+        {% endif %}
+    </div>
+{% else %}
+    <div class="alert alert-warning text-center">
+        <i class="bi bi-exclamation-triangle"></i> Nenhum jogo encontrado no momento.
+    </div>
+{% endif %}
+
+<div class="text-center mt-5 text-muted">
+    <small><i class="bi bi-arrow-clockwise"></i> Última atualização: {{ last_updated }}</small>
+</div>
+
+<style>
+    .match-card {
+        transition: all 0.3s ease;
+        border: none;
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+        margin-bottom: 20px;
+    }
+    
+    .match-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 10px 25px rgba(0,0,0,0.12);
+    }
+    
+    .match-header {
+        position: relative;
+        padding: 1.5rem;
+        color: white;
+    }
+    
+    .today-badge {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        background: rgba(255,255,255,0.9);
+        color: #333;
+        padding: 0.25rem 0.75rem;
+        border-radius: 20px;
+        font-size: 0.7rem;
+        font-weight: 600;
+    }
+    
+    .competition-badge {
+        position: absolute;
+        top: -10px;
+        right: 20px;
+        background: #FFD700;
+        color: #333;
+        padding: 0.25rem 1rem;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+    
+    /* Color schemes */
+    .blue-scheme .match-header { background: linear-gradient(135deg, #1a2a6c, #3a7bd5); }
+    .green-scheme .match-header { background: linear-gradient(135deg, #0f9b0f, #56ab2f); }
+    .red-scheme .match-header { background: linear-gradient(135deg, #b21f1f, #fdbb2d); }
+    .purple-scheme .match-header { background: linear-gradient(135deg, #6a11cb, #2575fc); }
+    .orange-scheme .match-header { background: linear-gradient(135deg, #f46b45, #eea849); }
+    
+    .stat-card {
+        border-radius: 10px;
+        border: 1px solid rgba(0,0,0,0.05);
+        transition: all 0.3s ease;
+        height: 100%;
+    }
+    
+    .stat-card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    
+    .stat-value {
+        font-size: 1.5rem;
+        font-weight: 700;
+    }
+    
+    .progress {
+        height: 8px;
+        border-radius: 4px;
+    }
+</style>
+{% endblock %}

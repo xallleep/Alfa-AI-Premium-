@@ -30,6 +30,7 @@
                                         <th>Partida</th>
                                         <th>Competição</th>
                                         <th>Data</th>
+                                        <th>Hora</th>
                                         <th>Previsão</th>
                                         <th>Ações</th>
                                     </tr>
@@ -40,7 +41,8 @@
                                             <td>{{ match.id }}</td>
                                             <td>{{ match.home_team }} vs {{ match.away_team }}</td>
                                             <td>{{ match.competition or '-' }}</td>
-                                            <td>{{ match.match_date }} às {{ match.match_time }}</td>
+                                            <td>{{ match.match_date }}</td>
+                                            <td>{{ match.match_time }}</td>
                                             <td>{{ match.predicted_score or '-' }}</td>
                                             <td>
                                                 <div class="btn-group btn-group-sm">
@@ -50,6 +52,7 @@
                                                     </a>
                                                     <form method="POST" action="{{ url_for('delete_match', match_id=match.id) }}" 
                                                           onsubmit="return confirm('Tem certeza que deseja excluir esta partida?');">
+                                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                                         <button type="submit" class="btn btn-outline-danger" title="Excluir">
                                                             <i class="bi bi-trash"></i>
                                                         </button>

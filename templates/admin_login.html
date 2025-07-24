@@ -1,43 +1,29 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Admin Login</title>
-    <style>
-        body { font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; }
-        .alert { padding: 10px; margin: 10px 0; border-radius: 4px; }
-        .alert-danger { background-color: #f8d7da; color: #721c24; }
-        .alert-success { background-color: #d4edda; color: #155724; }
-        form div { margin-bottom: 15px; }
-        label { display: block; margin-bottom: 5px; }
-        input { width: 100%; padding: 8px; box-sizing: border-box; }
-        button { background-color: #007bff; color: white; padding: 10px 15px; border: none; cursor: pointer; }
-    </style>
-</head>
-<body>
-    <h1>Área de Administração - Login</h1>
-    
-    {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-            {% for category, message in messages %}
-                <div class="alert alert-{{ category }}">{{ message }}</div>
-            {% endfor %}
-        {% endif %}
-    {% endwith %}
-    
-    <form method="POST" action="{{ url_for('admin_login') }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        
-        <div>
-            <label for="username">Usuário:</label>
-            <input type="text" id="username" name="username" required>
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header bg-premium text-white">
+                    <h3 class="mb-0">Área Administrativa</h3>
+                </div>
+                <div class="card-body">
+                    <form method="POST" action="{{ url_for('admin_login') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <div class="mb-3">
+                            <label for="username" class="form-label">Usuário</label>
+                            <input type="text" class="form-control" id="username" name="username" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="password" class="form-label">Senha</label>
+                            <input type="password" class="form-control" id="password" name="password" required>
+                        </div>
+                        <button type="submit" class="btn btn-premium w-100">Entrar</button>
+                    </form>
+                </div>
+            </div>
         </div>
-        
-        <div>
-            <label for="password">Senha:</label>
-            <input type="password" id="password" name="password" required>
-        </div>
-        
-        <button type="submit">Entrar</button>
-    </form>
-</body>
-</html>
+    </div>
+</div>
+{% endblock %}

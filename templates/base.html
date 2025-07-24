@@ -14,6 +14,16 @@
             background-color: #6f42c1;
             color: white;
         }
+        .text-premium {
+            color: #6f42c1;
+        }
+        .bg-premium-light {
+            background-color: #e2dcf7;
+        }
+        .alert-premium {
+            background-color: #f8f5ff;
+            border-left: 4px solid #6f42c1;
+        }
     </style>
 </head>
 <body>
@@ -33,6 +43,11 @@
                     {% if session.get('logged_in') %}
                         <li class="nav-item">
                             <a class="nav-link" href="{{ url_for('premium_matches') }}">Partidas</a>
+                        </li>
+                    {% endif %}
+                    {% if session.get('is_admin') %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('admin_dashboard') }}">Admin</a>
                         </li>
                     {% endif %}
                 </ul>
@@ -76,7 +91,7 @@
         <div class="container text-center">
             <p class="mb-1">Alfa AI Football Premium - Previsões Inteligentes</p>
             <p class="mb-0 small">
-                &copy; 2023 - Todos os direitos reservados
+                &copy; {{ datetime.now().year }} - Todos os direitos reservados
             </p>
         </div>
     </footer>
