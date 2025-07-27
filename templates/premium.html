@@ -1,79 +1,112 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="container py-5">
-    <div class="row justify-content-center">
-        <div class="col-md-8">
-            <h2 class="text-center mb-4">Assine nosso serviço Premium</h2>
-            
-            {% with messages = get_flashed_messages(with_categories=true) %}
-                {% if messages %}
-                    {% for category, message in messages %}
-                        <div class="alert alert-{{ category }} alert-dismissible fade show">
-                            {{ message }}
-                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                        </div>
-                    {% endfor %}
-                {% endif %}
-            {% endwith %}
+<div class="row justify-content-center">
+    <div class="col-lg-10">
+        <div class="text-center mb-5">
+            <h1 class="fw-bold">Assinatura Premium Obrigatória</h1>
+            <p class="lead">Para acessar todas as previsões de futebol com inteligência artificial</p>
+        </div>
 
-            <div class="row">
-                <!-- Plano Mensal -->
-                <div class="col-md-6 mb-4">
-                    <div class="card h-100">
-                        <div class="card-header bg-primary text-white">
-                            <h4 class="my-2">Plano Mensal</h4>
-                        </div>
-                        <div class="card-body">
-                            <h5 class="card-title">R$ 6,99/mês</h5>
-                            <form method="POST" action="{{ url_for('premium_subscription') }}">
-                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                <input type="hidden" name="subscription_type" value="monthly">
-                                <div class="mb-3">
-                                    <label for="email" class="form-label">Email</label>
-                                    <input type="email" class="form-control" id="email" name="email" required>
-                                </div>
-                                <div class="mb-3">
-                                    <label for="password" class="form-label">Senha</label>
-                                    <input type="password" class="form-control" id="password" name="password" required minlength="6">
-                                </div>
-                                <button type="submit" class="btn btn-primary w-100">Assinar</button>
-                            </form>
-                        </div>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }} alert-dismissible fade show">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                     </div>
-                </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
 
-                <!-- Plano Anual -->
-                <div class="col-md-6 mb-4">
-                    <div class="card h-100">
-                        <div class="card-header bg-success text-white">
-                            <h4 class="my-2">Plano Anual</h4>
-                            <span class="badge bg-warning text-dark">Economize 20%</span>
-                        </div>
-                        <div class="card-body">
-                            <h5 class="card-title">R$ 80,99/ano</h5>
-                            <form method="POST" action="{{ url_for('premium_subscription') }}">
-                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                <input type="hidden" name="subscription_type" value="yearly">
-                                <div class="mb-3">
-                                    <label for="email" class="form-label">Email</label>
-                                    <input type="email" class="form-control" id="email" name="email" required>
-                                </div>
-                                <div class="mb-3">
-                                    <label for="password" class="form-label">Senha</label>
-                                    <input type="password" class="form-control" id="password" name="password" required minlength="6">
-                                </div>
-                                <button type="submit" class="btn btn-success w-100">Assinar</button>
-                            </form>
-                        </div>
+        <div class="row g-4">
+            <!-- Plano Mensal -->
+            <div class="col-md-6">
+                <div class="card h-100 border-premium">
+                    <div class="card-header bg-premium text-white text-center py-3">
+                        <h3 class="mb-0">Plano Mensal</h3>
+                    </div>
+                    <div class="card-body">
+                        <form method="POST" action="{{ url_for('premium_subscription') }}">
+                            {{ form.csrf_token() }}
+                            <input type="hidden" name="subscription_type" value="monthly">
+                            <div class="mb-3">
+                                {{ form.email.label(class="form-label") }}
+                                {{ form.email(class="form-control") }}
+                                {% if form.email.errors %}
+                                    <div class="invalid-feedback">
+                                        {% for error in form.email.errors %}
+                                            {{ error }}
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                            <div class="mb-3">
+                                {{ form.password.label(class="form-label") }}
+                                {{ form.password(class="form-control") }}
+                                {% if form.password.errors %}
+                                    <div class="invalid-feedback">
+                                        {% for error in form.password.errors %}
+                                            {{ error }}
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                            <button type="submit" class="btn btn-premium btn-lg w-100">
+                                Assinar Mensalmente por R$6,99
+                            </button>
+                        </form>
                     </div>
                 </div>
             </div>
 
-            <div class="text-center mt-4">
-                <p>Já tem uma conta? <a href="{{ url_for('user_login') }}">Faça login aqui</a></p>
-                <p>Problemas com pagamento? <a href="{{ url_for('payment_verify') }}">Verifique seu status</a></p>
+            <!-- Plano Anual -->
+            <div class="col-md-6">
+                <div class="card h-100 border-warning">
+                    <div class="card-header bg-warning text-dark text-center py-3 position-relative">
+                        <h3 class="mb-0">Plano Anual</h3>
+                        <span class="position-absolute top-0 start-50 translate-middle badge rounded-pill bg-dark">
+                            Melhor oferta!
+                        </span>
+                    </div>
+                    <div class="card-body">
+                        <form method="POST" action="{{ url_for('premium_subscription') }}">
+                            {{ form.csrf_token() }}
+                            <input type="hidden" name="subscription_type" value="yearly">
+                            <div class="mb-3">
+                                {{ form.email.label(class="form-label") }}
+                                {{ form.email(class="form-control") }}
+                                {% if form.email.errors %}
+                                    <div class="invalid-feedback">
+                                        {% for error in form.email.errors %}
+                                            {{ error }}
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                            <div class="mb-3">
+                                {{ form.password.label(class="form-label") }}
+                                {{ form.password(class="form-control") }}
+                                {% if form.password.errors %}
+                                    <div class="invalid-feedback">
+                                        {% for error in form.password.errors %}
+                                            {{ error }}
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                            <button type="submit" class="btn btn-warning btn-lg w-100">
+                                Assinar Anualmente por R$80,99
+                            </button>
+                        </form>
+                    </div>
+                </div>
             </div>
+        </div>
+
+        <div class="text-center mt-4">
+            <p class="text-muted">Já assinou? <a href="{{ url_for('payment_verify') }}">Verifique seu pagamento aqui</a></p>
+            <p class="text-muted">Já tem conta? <a href="{{ url_for('user_login') }}">Faça login</a></p>
         </div>
     </div>
 </div>

@@ -1,11 +1,36 @@
+# Core Flask
 Flask==3.0.2
 Werkzeug==3.0.1
+
+# Banco de dados e ORM
+Flask-SQLAlchemy==3.1.1
+psycopg2-binary==2.9.9  # Adicionado para PostgreSQL
+
+# Forms e Validação
 Flask-WTF==1.2.1
 WTForms==3.1.2
-bleach==6.0.0
 email-validator==2.1.1
-Flask-SQLAlchemy==3.1.1
+bleach==6.0.0
+
+# Segurança e Autenticação
 Flask-Login==0.6.3
+Flask-Limiter==3.5.0  # Adicionado para rate limiting
+
+# Proteção CSRF
+Flask-CSRF==0.1.0  # Adicionado para proteção adicional
+
+# Otimização
+Flask-Minify==0.42  # Adicionado para minificação
+Flask-Caching==2.1.0  # Adicionado para cache
+
+# Variáveis de ambiente
 python-dotenv==1.0.1
+
+# Servidor de produção
 gunicorn==21.2.0
+
+# Gerenciamento de dependências
 setuptools==69.0.3
+
+# Logging (opcional, mas recomendado)
+structlog==23.3.0

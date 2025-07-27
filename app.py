@@ -1,200 +1,128 @@
 import os
-from flask import Flask, render_template, request, redirect, url_for, flash, session
-from datetime import datetime, timedelta
-import sqlite3
+import sys
+from datetime import datetime, timezone, timedelta
+import psycopg2
+from psycopg2.pool import SimpleConnectionPool
 from werkzeug.security import generate_password_hash, check_password_hash
 import logging
 from functools import wraps
+from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from flask_wtf import CSRFProtect, FlaskForm
 from wtforms import StringField, PasswordField, HiddenField
-from wtforms.validators import DataRequired, Email, Length
-from wtforms.validators import ValidationError
-import json
+from wtforms.validators import DataRequired, Email, Length, ValidationError
 from bleach import clean
+import hashlib
+from flask_minify import Minify
+from urllib.parse import urlparse
+import re
+import pytz
+from typing import Optional, List
+from flask_caching import Cache
+from flask_talisman import Talisman
+import sentry_sdk
+from sentry_sdk.integrations.flask import FlaskIntegration
+from dotenv import load_dotenv
+import requests
+from requests.exceptions import RequestException
 
-# Configuração inicial do app
+# =============================================
+# INITIAL CONFIGURATION
+# =============================================
+
+load_dotenv()
+
+# Sentry Configuration (opcional)
+if os.environ.get('SENTRY_DSN'):
+    sentry_sdk.init(
+        dsn=os.environ['SENTRY_DSN'],
+        integrations=[FlaskIntegration()],
+        traces_sample_rate=1.0,
+        environment=os.environ.get('FLASK_ENV', 'production')
+    )
+
+class Config:
+    # Required configurations
+    SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key')
+    WTF_CSRF_SECRET_KEY = os.environ.get('CSRF_SECRET_KEY', 'dev-csrf-key')
+    DATABASE_URL = os.environ.get('DATABASE_URL')
+    
+    # Security settings
+    SESSION_COOKIE_SECURE = True
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = 'Lax'
+    PERMANENT_SESSION_LIFETIME = timedelta(hours=2)
+    TEMPLATES_AUTO_RELOAD = False
+    MAX_CONTENT_LENGTH = 1 * 1024 * 1024  # 1MB (reduzido para Starter)
+    
+    # Cache settings (simplificado)
+    CACHE_TYPE = 'SimpleCache'
+    CACHE_DEFAULT_TIMEOUT = 300
+    
+    # Admin settings
+    ADMIN_USERNAME = 'admin_futbolytics'
+    ADMIN_PASSWORD_HASH = generate_password_hash(os.environ.get('ADMIN_PASSWORD', 'admin123'))
+    
+    # Payment links (exemplo)
+    PAGBANK_LINKS = {
+        'monthly': os.environ.get('PAGBANK_MONTHLY_LINK', '#'),
+        'yearly': os.environ.get('PAGBANK_YEARLY_LINK', '#')
+    }
+
+# =============================================
+# APP INITIALIZATION (ADAPTADO PARA STARTER)
+# =============================================
+
 app = Flask(__name__)
+app.config.from_object(Config)
 
-# Configurações otimizadas para o Render
-app.config.update(
-    SECRET_KEY=os.environ.get('SECRET_KEY', os.urandom(32).hex()),
-    WTF_CSRF_ENABLED=True,
-    WTF_CSRF_SECRET_KEY=os.environ.get('CSRF_SECRET_KEY', os.urandom(32).hex()),
-    WTF_CSRF_TIME_LIMIT=3600,
-    SESSION_COOKIE_SECURE=True,
-    SESSION_COOKIE_SAMESITE='Lax',
-    PERMANENT_SESSION_LIFETIME=timedelta(minutes=30),
-    TEMPLATES_AUTO_RELOAD=True,
-    DATABASE=os.path.join(app.instance_path, 'matches.db'),
-    SQLALCHEMY_DATABASE_URI='sqlite:///' + os.path.join(app.instance_path, 'matches.db'),
-    SQLALCHEMY_TRACK_MODIFICATIONS=False
-)
+# Security (adaptado para desenvolvimento)
+if os.environ.get('FLASK_ENV') == 'production':
+    Talisman(app, force_https=True, strict_transport_security=True)
+else:
+    Talisman(app, force_https=False)
 
-# Proteção CSRF
+# Cache (simplificado)
+cache = Cache(app)
+
+# Optimization
+Minify(app=app, html=True, js=True, cssless=True)
+
+# CSRF Protection
 csrf = CSRFProtect(app)
 
-# Links de pagamento
-PAGBANK_LINKS = {
-    'monthly': 'https://pag.ae/7_TnPtRxH',
-    'yearly': 'https://pag.ae/7_TnQbYun'
-}
+# Rate Limiter (memory-based para Starter)
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    storage_uri="memory://",
+    default_limits=["200 per day", "50 per hour"]
+)
 
-# Forms customizados
-class SubscriptionForm(FlaskForm):
-    email = StringField('Email', validators=[
-        DataRequired(message="O email é obrigatório"),
-        Email(message="Por favor, insira um email válido")
-    ])
-    password = PasswordField('Password', validators=[
-        DataRequired(message="A senha é obrigatória"),
-        Length(min=8, message="A senha deve ter pelo menos 8 caracteres")
-    ])
-    subscription_type = HiddenField('Subscription Type', validators=[DataRequired()])
-
-    def validate_subscription_type(self, field):
-        if field.data not in PAGBANK_LINKS:
-            raise ValidationError('Tipo de assinatura inválido')
-
-class LoginForm(FlaskForm):
-    email = StringField('Email', validators=[
-        DataRequired(message="O email é obrigatório"),
-        Email(message="Por favor, insira um email válido")
-    ])
-    password = PasswordField('Password', validators=[
-        DataRequired(message="A senha é obrigatória")
-    ])
-
-class AdminLoginForm(FlaskForm):
-    username = StringField('Username', validators=[
-        DataRequired(message="O nome de usuário é obrigatório")
-    ])
-    password = PasswordField('Password', validators=[
-        DataRequired(message="A senha é obrigatória")
-    ])
-
-# JSON Encoder customizado
-class FlaskJSONEncoder(json.JSONEncoder):
-    def default(self, o):
-        if hasattr(o, '__html__'):
-            return str(o.__html__())
-        return super().default(o)
-
-app.json_encoder = FlaskJSONEncoder
-
-# Configuração de logging
+# Logging configuration (simplificado)
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s %(levelname)s %(name)s : %(message)s',
+    stream=sys.stdout
 )
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('futbolytics.render')
 
-# Constantes
-ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'admin')
-ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin123premium')
-ADMIN_PASSWORD_HASH = generate_password_hash(ADMIN_PASSWORD)
+# =============================================
+# HELPER FUNCTIONS (OTIMIZADAS)
+# =============================================
 
-# Helpers de banco de dados
-def get_db():
-    """Obtém uma conexão com o banco de dados"""
-    db = sqlite3.connect(app.config['DATABASE'])
-    db.row_factory = sqlite3.Row
-    db.execute('PRAGMA foreign_keys = ON')
-    return db
+def send_email(subject: str, body: str, recipient: Optional[str] = None) -> bool:
+    """Função simulada para evitar dependências externas no Starter"""
+    logger.info(f"Email simulador: Para: {recipient}, Assunto: {subject}, Corpo: {body[:100]}...")
+    return True
 
-def init_db():
-    """Inicializa o banco de dados"""
-    try:
-        os.makedirs(app.instance_path, exist_ok=True)
-        db = get_db()
-        
-        db.execute('''
-            CREATE TABLE IF NOT EXISTS matches (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                home_team TEXT NOT NULL,
-                away_team TEXT NOT NULL,
-                competition TEXT,
-                location TEXT,
-                match_date TEXT NOT NULL,
-                match_time TEXT NOT NULL,
-                predicted_score TEXT,
-                home_win_percent INTEGER DEFAULT 0,
-                draw_percent INTEGER DEFAULT 0,
-                away_win_percent INTEGER DEFAULT 0,
-                over_05_percent INTEGER DEFAULT 0,
-                over_15_percent INTEGER DEFAULT 0,
-                over_25_percent INTEGER DEFAULT 0,
-                over_35_percent INTEGER DEFAULT 0,
-                btts_percent INTEGER DEFAULT 0,
-                btts_no_percent INTEGER DEFAULT 0,
-                yellow_cards_predicted REAL DEFAULT 0,
-                red_cards_predicted REAL DEFAULT 0,
-                corners_predicted REAL DEFAULT 0,
-                corners_home_predicted REAL DEFAULT 0,
-                corners_away_predicted REAL DEFAULT 0,
-                possession_home INTEGER DEFAULT 50,
-                possession_away INTEGER DEFAULT 50,
-                shots_on_target_home INTEGER DEFAULT 0,
-                shots_on_target_away INTEGER DEFAULT 0,
-                shots_off_target_home INTEGER DEFAULT 0,
-                shots_off_target_away INTEGER DEFAULT 0,
-                fouls_home INTEGER DEFAULT 0,
-                fouls_away INTEGER DEFAULT 0,
-                offsides_home INTEGER DEFAULT 0,
-                offsides_away INTEGER DEFAULT 0,
-                safe_prediction TEXT,
-                risk_prediction TEXT,
-                details TEXT,
-                display_order INTEGER DEFAULT 0,
-                color_scheme TEXT DEFAULT 'blue',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        
-        db.execute('''
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                email TEXT UNIQUE NOT NULL,
-                password TEXT NOT NULL,
-                is_premium BOOLEAN DEFAULT 0,
-                premium_expiry TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        
-        db.execute('''
-            CREATE TABLE IF NOT EXISTS subscriptions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                subscription_type TEXT NOT NULL,
-                payment_amount REAL NOT NULL,
-                payment_date TEXT NOT NULL,
-                expiry_date TEXT NOT NULL,
-                is_active BOOLEAN DEFAULT 1,
-                status TEXT DEFAULT 'pending',
-                transaction_id TEXT,
-                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-            )
-        ''')
-        
-        db.commit()
-        logger.info("Database initialized successfully")
-    except Exception as e:
-        logger.error(f"Error initializing database: {str(e)}")
-        raise
-    finally:
-        db.close()
-
-# Inicializa o banco de dados
-with app.app_context():
-    init_db()
-
-# Decorators de segurança
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if not session.get('logged_in'):
-            flash('Acesso restrito a usuários premium', 'danger')
-            return redirect(url_for('premium_subscription'))
+            flash('Please login to access this page', 'warning')
+            return redirect(url_for('user_login', next=request.url))
         return f(*args, **kwargs)
     return decorated_function
 
@@ -202,94 +130,287 @@ def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if not session.get('admin_logged_in'):
-            flash('Acesso restrito a administradores', 'danger')
-            return redirect(url_for('admin_login', next=request.url))
+            flash('Restricted to administrators', 'danger')
+            return redirect(url_for('admin_login'))
         return f(*args, **kwargs)
     return decorated_function
 
-# Helpers de aplicativo
-def sanitize_input(text, max_length=None):
-    """Sanitiza entrada do usuário"""
-    if text is None:
-        return None
-    cleaned = clean(str(text).strip())
-    if max_length and len(cleaned) > max_length:
-        return cleaned[:max_length]
+def sanitize_input(input_str: str, allowed_tags: List[str] = []) -> str:
+    """Sanitize user input to prevent XSS"""
+    if not input_str:
+        return ''
+    
+    cleaned = clean(input_str, tags=allowed_tags, strip=True)
+    cleaned = re.sub(r'[^\w\s@.-]', '', cleaned)
     return cleaned
 
-def format_date(date_str):
-    """Formata a data para exibição"""
+def format_date(date_str: str, from_format: str = '%Y-%m-%d', to_format: str = '%d/%m/%Y') -> str:
+    """Format dates to Brazilian standard"""
     try:
-        return datetime.strptime(date_str, '%Y-%m-%d').strftime('%d/%m/%Y')
+        date_obj = datetime.strptime(date_str, from_format)
+        return date_obj.strftime(to_format)
     except (ValueError, TypeError):
         return date_str
 
-def check_premium_status(user_id):
-    """Verifica o status premium do usuário"""
-    db = get_db()
-    try:
-        user = db.execute('SELECT is_premium, premium_expiry FROM users WHERE id = ?', (user_id,)).fetchone()
-        if user and user['is_premium'] and user['premium_expiry']:
-            expiry_date = datetime.strptime(user['premium_expiry'], '%Y-%m-%d')
-            return expiry_date >= datetime.now()
+def check_password_strength(password: str) -> bool:
+    """Check password strength"""
+    if len(password) < 8:  # Reduzido para 8 caracteres para melhor UX
         return False
+    if not re.search(r'[A-Z]', password):
+        return False
+    if not re.search(r'[a-z]', password):
+        return False
+    if not re.search(r'[0-9]', password):
+        return False
+    return True  # Removida a exigência de caracteres especiais
+
+def check_premium_status(user_id: int) -> bool:
+    """Verifica se o usuário tem assinatura premium ativa"""
+    conn = None
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute('''
+            SELECT 1 FROM subscriptions 
+            WHERE user_id = %s AND is_active = TRUE AND expiry_date >= CURRENT_DATE
+            LIMIT 1
+        ''', (user_id,))
+        return cur.fetchone() is not None
     except Exception as e:
         logger.error(f"Error checking premium status: {str(e)}")
         return False
     finally:
-        db.close()
+        if conn:
+            return_db(conn)
 
-def get_numeric_value(key, default=0):
-    """Obtém valor numérico do formulário"""
-    value = request.form.get(key)
+# =============================================
+# DATABASE FUNCTIONS (OTIMIZADAS)
+# =============================================
+
+def get_db_url() -> str:
+    """Return properly formatted database connection URL"""
+    db_url = Config.DATABASE_URL
+    if db_url and db_url.startswith('postgres://'):
+        db_url = db_url.replace('postgres://', 'postgresql://', 1)
+    return db_url or ''
+
+# Connection pool (reduzido para Starter)
+connection_pool = None
+
+def init_connection_pool() -> None:
+    """Initialize database connection pool"""
+    global connection_pool
+    if not connection_pool:
+        try:
+            connection_pool = SimpleConnectionPool(
+                minconn=1,
+                maxconn=3,  # Reduzido para 3 conexões
+                dsn=get_db_url(),
+                connect_timeout=5
+            )
+            logger.info("Database connection pool initialized")
+        except Exception as e:
+            logger.error(f"Failed to initialize connection pool: {str(e)}")
+            raise
+
+def get_db():
+    """Get a connection from the pool"""
+    init_connection_pool()
     try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
+        conn = connection_pool.getconn()
+        conn.autocommit = False
+        return conn
+    except Exception as e:
+        logger.error(f"Failed to get database connection: {str(e)}")
+        raise
 
-def get_float_value(key, default=0.0):
-    """Obtém valor float do formulário"""
-    value = request.form.get(key)
+def return_db(conn) -> None:
+    """Return a connection to the pool"""
+    if connection_pool and conn:
+        try:
+            connection_pool.putconn(conn)
+        except Exception as e:
+            logger.error(f"Error returning connection to pool: {str(e)}")
+            try:
+                conn.close()
+            except:
+                pass
+
+def init_db() -> None:
+    """Initialize database with required tables"""
+    conn = None
     try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
+        conn = get_db()
+        cur = conn.cursor()
+        
+        # Matches table
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS matches (
+                id SERIAL PRIMARY KEY,
+                home_team TEXT NOT NULL,
+                away_team TEXT NOT NULL,
+                competition TEXT,
+                location TEXT,
+                match_date DATE NOT NULL,
+                match_time TIME NOT NULL,
+                predicted_score TEXT,
+                home_win_percent INTEGER DEFAULT 0,
+                draw_percent INTEGER DEFAULT 0,
+                away_win_percent INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # Users table (simplificada)
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                email TEXT UNIQUE NOT NULL,
+                password TEXT NOT NULL,
+                is_premium BOOLEAN DEFAULT FALSE,
+                premium_expiry DATE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # Subscriptions table (simplificada)
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS subscriptions (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                subscription_type TEXT NOT NULL,
+                payment_amount REAL NOT NULL,
+                expiry_date DATE NOT NULL,
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # Indexes
+        cur.execute('CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)')
+        cur.execute('CREATE INDEX IF NOT EXISTS idx_matches_date ON matches(match_date)')
+        
+        conn.commit()
+        logger.info("Database initialized successfully")
+    except Exception as e:
+        logger.error(f"Error initializing database: {str(e)}")
+        if conn:
+            conn.rollback()
+        raise
+    finally:
+        if conn:
+            return_db(conn)
 
-# Rotas principais
+# =============================================
+# FORMS (SIMPLIFICADAS)
+# =============================================
+
+class SubscriptionForm(FlaskForm):
+    email = StringField('Email', validators=[
+        DataRequired(message="Email is required"),
+        Email(message="Please enter a valid email")
+    ])
+    password = PasswordField('Password', validators=[
+        DataRequired(message="Password is required"),
+        Length(min=8, message="Password must be at least 8 characters")
+    ])
+    confirm_password = PasswordField('Confirm Password', validators=[
+        DataRequired(message="Please confirm your password")
+    ])
+    subscription_type = HiddenField('Subscription Type', validators=[DataRequired()])
+    
+    def validate_email(self, field):
+        """Validate if email is already in use"""
+        conn = None
+        try:
+            conn = get_db()
+            cur = conn.cursor()
+            cur.execute('SELECT 1 FROM users WHERE email = %s', (field.data,))
+            if cur.fetchone():
+                raise ValidationError('Email already in use')
+        except Exception as e:
+            logger.error(f"Email validation error: {str(e)}")
+            raise ValidationError('Error checking email')
+        finally:
+            if conn:
+                return_db(conn)
+
+    def validate_password(self, field):
+        """Validate password strength"""
+        if not check_password_strength(field.data):
+            raise ValidationError('Password must contain at least 8 characters, including uppercase, lowercase and numbers')
+
+    def validate_confirm_password(self, field):
+        """Validate password confirmation"""
+        if field.data != self.password.data:
+            raise ValidationError('Passwords do not match')
+
+class LoginForm(FlaskForm):
+    email = StringField('Email', validators=[
+        DataRequired(message="Email is required"),
+        Email(message="Please enter a valid email")
+    ])
+    password = PasswordField('Password', validators=[
+        DataRequired(message="Password is required")
+    ])
+
+class AdminLoginForm(FlaskForm):
+    username = StringField('Username', validators=[
+        DataRequired(message="Username is required")
+    ])
+    password = PasswordField('Password', validators=[
+        DataRequired(message="Password is required")
+    ])
+
+# =============================================
+# ROUTES (PRINCIPAIS)
+# =============================================
+
 @app.route('/')
+@cache.cached(timeout=300)
+def home():
+    """Public home page"""
+    return render_template('home.html')
+
+@app.route('/dashboard')
 @login_required
 def index():
-    """Página principal"""
+    """Main dashboard page"""
+    conn = None
     try:
-        db = get_db()
-        today = datetime.now().strftime('%Y-%m-%d')
-        next_week = (datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d')
+        conn = get_db()
+        cur = conn.cursor()
         
-        matches = db.execute('''
-            SELECT * FROM matches 
-            WHERE match_date BETWEEN ? AND ?
-            ORDER BY display_order, match_date, match_time
-        ''', (today, next_week)).fetchall()
+        today = datetime.now(pytz.UTC).strftime('%Y-%m-%d')
+        next_week = (datetime.now(pytz.UTC) + timedelta(days=7)).strftime('%Y-%m-%d')
         
-        today_matches = [dict(m) for m in matches if m['match_date'] == today]
-        other_matches = [dict(m) for m in matches if m['match_date'] != today]
+        cur.execute('''
+            SELECT id, home_team, away_team, match_date, match_time, 
+                   predicted_score, home_win_percent, draw_percent, away_win_percent
+            FROM matches 
+            WHERE match_date BETWEEN %s AND %s
+            ORDER BY match_date, match_time
+            LIMIT 30
+        ''', (today, next_week))
+        matches = [dict(row) for row in cur.fetchall()]
         
-        for m in today_matches + other_matches:
-            m['formatted_date'] = format_date(m['match_date'])
+        for match in matches:
+            match['formatted_date'] = format_date(match['match_date'].strftime('%Y-%m-%d'))
         
         return render_template('index.html',
-                            today_matches=today_matches,
-                            other_matches=other_matches,
+                            matches=matches,
                             is_premium=session.get('is_premium', False))
     except Exception as e:
         logger.error(f"Error in index route: {str(e)}")
-        return render_template('error.html', message="Erro ao carregar dados"), 500
+        return render_template('error.html', message="Error loading data"), 500
     finally:
-        db.close()
+        if conn:
+            return_db(conn)
 
 @app.route('/premium', methods=['GET', 'POST'])
 def premium_subscription():
-    """Página de assinatura premium"""
+    """Premium subscription page"""
     form = SubscriptionForm()
     
     if form.validate_on_submit():
@@ -297,59 +418,71 @@ def premium_subscription():
         password = form.password.data
         subscription_type = form.subscription_type.data
         
-        db = get_db()
+        conn = None
         try:
-            user = db.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
+            conn = get_db()
+            cur = conn.cursor()
+            
+            # Check if user exists
+            cur.execute('SELECT * FROM users WHERE email = %s', (email,))
+            user = cur.fetchone()
             
             if user:
                 if check_password_hash(user['password'], password):
                     session['logged_in'] = True
                     session['user_id'] = user['id']
                     session['is_premium'] = check_premium_status(user['id'])
-                    return redirect(PAGBANK_LINKS[subscription_type])
+                    return redirect(Config.PAGBANK_LINKS[subscription_type])
                 else:
-                    flash('Senha incorreta', 'danger')
+                    flash('Incorrect password', 'danger')
                     return redirect(url_for('user_login'))
             
+            # Create new user
             hashed_password = generate_password_hash(password)
-            db.execute('INSERT INTO users (email, password) VALUES (?, ?)', (email, hashed_password))
-            user_id = db.lastrowid
+            cur.execute('''
+                INSERT INTO users (email, password) 
+                VALUES (%s, %s) 
+                RETURNING id
+            ''', (email, hashed_password))
+            user_id = cur.fetchone()[0]
             
-            payment_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            if subscription_type == 'monthly':
-                expiry_date = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
-                payment_amount = 6.99
-            else:
-                expiry_date = (datetime.now() + timedelta(days=365)).strftime('%Y-%m-%d')
-                payment_amount = 80.99
+            # Record subscription
+            expiry_date = datetime.now(pytz.UTC) + timedelta(days=30 if subscription_type == 'monthly' else 365)
             
-            db.execute('''
+            cur.execute('''
                 INSERT INTO subscriptions (
-                    user_id, subscription_type, payment_amount, 
-                    payment_date, expiry_date, status
-                ) VALUES (?, ?, ?, ?, ?, ?)
-            ''', (user_id, subscription_type, payment_amount, payment_date, expiry_date, 'pending'))
+                    user_id, subscription_type, payment_amount, expiry_date
+                ) VALUES (%s, %s, %s, %s)
+            ''', (
+                user_id, subscription_type, 
+                6.99 if subscription_type == 'monthly' else 80.99,
+                expiry_date
+            ))
             
-            db.commit()
+            conn.commit()
             
+            # Set up session
             session['logged_in'] = True
             session['user_id'] = user_id
             session['is_premium'] = False
             
-            return redirect(PAGBANK_LINKS[subscription_type])
+            return redirect(Config.PAGBANK_LINKS[subscription_type])
             
         except Exception as e:
-            db.rollback()
+            if conn:
+                conn.rollback()
             logger.error(f"Subscription error: {str(e)}")
-            flash('Erro no processamento', 'danger')
+            flash('Subscription processing error', 'danger')
         finally:
-            db.close()
+            if conn:
+                return_db(conn)
     
-    return render_template('premium.html', form=form, pagbank_links=PAGBANK_LINKS)
+    return render_template('premium.html', form=form, pagbank_links=Config.PAGBANK_LINKS)
 
 @app.route('/login', methods=['GET', 'POST'])
+@limiter.limit("5 per minute")
 def user_login():
-    """Página de login"""
+    """User login page"""
     if session.get('logged_in'):
         return redirect(url_for('index'))
     
@@ -358,308 +491,171 @@ def user_login():
         email = sanitize_input(form.email.data)
         password = form.password.data
         
-        db = get_db()
+        conn = None
         try:
-            user = db.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
+            conn = get_db()
+            cur = conn.cursor()
+            cur.execute('''
+                SELECT id, password FROM users 
+                WHERE email = %s
+            ''', (email,))
+            user = cur.fetchone()
+            
             if user and check_password_hash(user['password'], password):
                 session['logged_in'] = True
                 session['user_id'] = user['id']
                 session['is_premium'] = check_premium_status(user['id'])
                 return redirect(url_for('index'))
             else:
-                flash('Email ou senha incorretos', 'danger')
+                flash('Incorrect email or password', 'danger')
         except Exception as e:
             logger.error(f"Login error: {str(e)}")
-            flash('Erro no login', 'danger')
+            flash('Login error', 'danger')
         finally:
-            db.close()
+            if conn:
+                return_db(conn)
     
     return render_template('login.html', form=form)
 
 @app.route('/logout')
 def logout():
-    """Logout do usuário"""
+    """User logout"""
     session.clear()
-    return redirect(url_for('index'))
+    flash('You have been logged out successfully', 'success')
+    return redirect(url_for('home'))
 
-# Rotas administrativas
 @app.route('/admin/login', methods=['GET', 'POST'])
+@limiter.limit("3 per minute")
 def admin_login():
-    """Login administrativo"""
+    """Admin login"""
     form = AdminLoginForm()
     if form.validate_on_submit():
-        if (form.username.data == ADMIN_USERNAME and 
-            check_password_hash(ADMIN_PASSWORD_HASH, form.password.data)):
+        if (form.username.data == Config.ADMIN_USERNAME and 
+            check_password_hash(Config.ADMIN_PASSWORD_HASH, form.password.data)):
+            
             session['admin_logged_in'] = True
             return redirect(url_for('admin_dashboard'))
         else:
-            flash('Credenciais inválidas', 'danger')
-    return render_template('admin/login.html', form=form)
+            flash('Invalid credentials', 'danger')
+    return render_template('admin_login.html', form=form)
 
 @app.route('/admin/dashboard')
 @admin_required
 def admin_dashboard():
-    """Painel administrativo"""
+    """Admin dashboard simplificado"""
+    conn = None
     try:
-        db = get_db()
-        matches = db.execute('SELECT * FROM matches ORDER BY match_date, match_time').fetchall()
-        return render_template('admin/dashboard.html', matches=matches)
+        conn = get_db()
+        cur = conn.cursor()
+        
+        cur.execute('SELECT COUNT(*) FROM users')
+        user_count = cur.fetchone()[0]
+        
+        cur.execute('SELECT COUNT(*) FROM matches')
+        match_count = cur.fetchone()[0]
+        
+        cur.execute('SELECT COUNT(*) FROM subscriptions WHERE is_active = TRUE')
+        active_subs = cur.fetchone()[0]
+        
+        return render_template(
+            'dashboard.html',
+            user_count=user_count,
+            match_count=match_count,
+            active_subs=active_subs
+        )
     except Exception as e:
         logger.error(f"Admin dashboard error: {str(e)}")
-        return render_template('error.html', message="Erro ao carregar dados"), 500
+        return render_template('error.html', message="Error loading data"), 500
     finally:
-        db.close()
+        if conn:
+            return_db(conn)
 
-@app.route('/admin/match/add', methods=['GET', 'POST'])
-@admin_required
-def add_match():
-    """Adicionar partida"""
-    if request.method == 'POST':
-        db = get_db()
-        try:
-            db.execute('''
-                INSERT INTO matches (
-                    home_team, away_team, competition, location, 
-                    match_date, match_time, predicted_score,
-                    home_win_percent, away_win_percent, draw_percent,
-                    over_05_percent, over_15_percent, over_25_percent, over_35_percent,
-                    btts_percent, btts_no_percent, yellow_cards_predicted,
-                    red_cards_predicted, corners_predicted, corners_home_predicted,
-                    corners_away_predicted, possession_home, possession_away,
-                    shots_on_target_home, shots_on_target_away, shots_off_target_home,
-                    shots_off_target_away, fouls_home, fouls_away, offsides_home,
-                    offsides_away, safe_prediction, risk_prediction, details,
-                    display_order, color_scheme
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            ''', (
-                request.form.get('home_team'),
-                request.form.get('away_team'),
-                request.form.get('competition'),
-                request.form.get('location'),
-                request.form.get('match_date'),
-                request.form.get('match_time'),
-                request.form.get('predicted_score'),
-                get_numeric_value('home_win_percent'),
-                get_numeric_value('away_win_percent'),
-                get_numeric_value('draw_percent'),
-                get_numeric_value('over_05_percent'),
-                get_numeric_value('over_15_percent'),
-                get_numeric_value('over_25_percent'),
-                get_numeric_value('over_35_percent'),
-                get_numeric_value('btts_percent'),
-                get_numeric_value('btts_no_percent'),
-                get_float_value('yellow_cards_predicted'),
-                get_float_value('red_cards_predicted'),
-                get_float_value('corners_predicted'),
-                get_float_value('corners_home_predicted'),
-                get_float_value('corners_away_predicted'),
-                get_numeric_value('possession_home', 50),
-                get_numeric_value('possession_away', 50),
-                get_numeric_value('shots_on_target_home'),
-                get_numeric_value('shots_on_target_away'),
-                get_numeric_value('shots_off_target_home'),
-                get_numeric_value('shots_off_target_away'),
-                get_numeric_value('fouls_home'),
-                get_numeric_value('fouls_away'),
-                get_numeric_value('offsides_home'),
-                get_numeric_value('offsides_away'),
-                request.form.get('safe_prediction'),
-                request.form.get('risk_prediction'),
-                request.form.get('details'),
-                get_numeric_value('display_order'),
-                request.form.get('color_scheme', 'blue')
-            ))
-            db.commit()
-            flash('Partida adicionada com sucesso!', 'success')
-            return redirect(url_for('admin_dashboard'))
-        except Exception as e:
-            db.rollback()
-            logger.error(f"Error adding match: {str(e)}")
-            flash('Erro ao adicionar partida', 'danger')
-        finally:
-            db.close()
-    
-    return render_template('admin/add_match.html')
+# =============================================
+# API ROUTES (SIMPLIFICADAS)
+# =============================================
 
-@app.route('/admin/match/edit/<int:match_id>', methods=['GET', 'POST'])
-@admin_required
-def edit_match(match_id):
-    """Editar partida"""
-    db = get_db()
+@app.route('/api/matches')
+@login_required
+@cache.cached(timeout=60, query_string=True)
+def api_matches():
+    """API endpoint for matches"""
+    conn = None
     try:
-        if request.method == 'POST':
-            db.execute('''
-                UPDATE matches SET
-                    home_team = ?,
-                    away_team = ?,
-                    competition = ?,
-                    location = ?,
-                    match_date = ?,
-                    match_time = ?,
-                    predicted_score = ?,
-                    home_win_percent = ?,
-                    away_win_percent = ?,
-                    draw_percent = ?,
-                    over_05_percent = ?,
-                    over_15_percent = ?,
-                    over_25_percent = ?,
-                    over_35_percent = ?,
-                    btts_percent = ?,
-                    btts_no_percent = ?,
-                    yellow_cards_predicted = ?,
-                    red_cards_predicted = ?,
-                    corners_predicted = ?,
-                    corners_home_predicted = ?,
-                    corners_away_predicted = ?,
-                    possession_home = ?,
-                    possession_away = ?,
-                    shots_on_target_home = ?,
-                    shots_on_target_away = ?,
-                    shots_off_target_home = ?,
-                    shots_off_target_away = ?,
-                    fouls_home = ?,
-                    fouls_away = ?,
-                    offsides_home = ?,
-                    offsides_away = ?,
-                    safe_prediction = ?,
-                    risk_prediction = ?,
-                    details = ?,
-                    display_order = ?,
-                    color_scheme = ?
-                WHERE id = ?
-            ''', (
-                request.form.get('home_team'),
-                request.form.get('away_team'),
-                request.form.get('competition'),
-                request.form.get('location'),
-                request.form.get('match_date'),
-                request.form.get('match_time'),
-                request.form.get('predicted_score'),
-                get_numeric_value('home_win_percent'),
-                get_numeric_value('away_win_percent'),
-                get_numeric_value('draw_percent'),
-                get_numeric_value('over_05_percent'),
-                get_numeric_value('over_15_percent'),
-                get_numeric_value('over_25_percent'),
-                get_numeric_value('over_35_percent'),
-                get_numeric_value('btts_percent'),
-                get_numeric_value('btts_no_percent'),
-                get_float_value('yellow_cards_predicted'),
-                get_float_value('red_cards_predicted'),
-                get_float_value('corners_predicted'),
-                get_float_value('corners_home_predicted'),
-                get_float_value('corners_away_predicted'),
-                get_numeric_value('possession_home', 50),
-                get_numeric_value('possession_away', 50),
-                get_numeric_value('shots_on_target_home'),
-                get_numeric_value('shots_on_target_away'),
-                get_numeric_value('shots_off_target_home'),
-                get_numeric_value('shots_off_target_away'),
-                get_numeric_value('fouls_home'),
-                get_numeric_value('fouls_away'),
-                get_numeric_value('offsides_home'),
-                get_numeric_value('offsides_away'),
-                request.form.get('safe_prediction'),
-                request.form.get('risk_prediction'),
-                request.form.get('details'),
-                get_numeric_value('display_order'),
-                request.form.get('color_scheme', 'blue'),
-                match_id
-            ))
-            db.commit()
-            flash('Partida atualizada com sucesso!', 'success')
-            return redirect(url_for('admin_dashboard'))
+        conn = get_db()
+        cur = conn.cursor()
         
-        match = db.execute('SELECT * FROM matches WHERE id = ?', (match_id,)).fetchone()
-        if not match:
-            flash('Partida não encontrada', 'danger')
-            return redirect(url_for('admin_dashboard'))
+        date_from = request.args.get('from', datetime.now(pytz.UTC).strftime('%Y-%m-%d'))
+        date_to = request.args.get('to', (datetime.now(pytz.UTC) + timedelta(days=7)).strftime('%Y-%m-%d'))
         
-        return render_template('admin/edit_match.html', match=match)
+        cur.execute('''
+            SELECT id, home_team, away_team, match_date, match_time 
+            FROM matches 
+            WHERE match_date BETWEEN %s AND %s
+            ORDER BY match_date, match_time
+        ''', (date_from, date_to))
+        
+        matches = [dict(row) for row in cur.fetchall()]
+        for m in matches:
+            m['match_date'] = m['match_date'].strftime('%Y-%m-%d')
+            m['match_time'] = str(m['match_time'])
+        
+        return jsonify({
+            'status': 'success',
+            'data': matches,
+            'count': len(matches)
+        })
     except Exception as e:
-        logger.error(f"Error editing match: {str(e)}")
-        flash('Erro ao editar partida', 'danger')
-        return redirect(url_for('admin_dashboard'))
+        logger.error(f"API matches error: {str(e)}")
+        return jsonify({'status': 'error', 'message': 'Internal server error'}), 500
     finally:
-        db.close()
+        if conn:
+            return_db(conn)
 
-@app.route('/admin/match/delete/<int:match_id>', methods=['POST'])
-@admin_required
-def delete_match(match_id):
-    """Excluir partida"""
-    db = get_db()
+@app.route('/ping')
+def ping():
+    """Health check endpoint simplificado"""
     try:
-        db.execute('DELETE FROM matches WHERE id = ?', (match_id,))
-        db.commit()
-        flash('Partida excluída com sucesso', 'success')
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute('SELECT 1')
+        db_ok = cur.fetchone()[0] == 1
+        return jsonify({'status': 'ok', 'database': 'ok'}), 200
     except Exception as e:
-        logger.error(f"Error deleting match: {str(e)}")
-        flash('Erro ao excluir partida', 'danger')
+        logger.error(f"Health check failed: {str(e)}")
+        return jsonify({'status': 'degraded', 'database': 'unavailable'}), 503
     finally:
-        db.close()
-    return redirect(url_for('admin_dashboard'))
+        if conn:
+            return_db(conn)
 
-@app.route('/payment/verify', methods=['GET', 'POST'])
-def payment_verify():
-    """Verificação de pagamento"""
-    if request.method == 'POST':
-        email = request.form.get('email')
-        db = get_db()
-        try:
-            user = db.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
-            if not user:
-                flash('Email não encontrado', 'danger')
-                return redirect(url_for('payment_verify'))
-            
-            recent_payment = db.execute('''
-                SELECT * FROM subscriptions 
-                WHERE user_id = ? 
-                AND payment_date >= datetime('now', '-30 minutes')
-                ORDER BY payment_date DESC
-                LIMIT 1
-            ''', (user['id'],)).fetchone()
-            
-            if recent_payment:
-                db.execute('''
-                    UPDATE users SET 
-                        is_premium = 1,
-                        premium_expiry = ?
-                    WHERE id = ?
-                ''', (recent_payment['expiry_date'], user['id']))
-                
-                db.execute('''
-                    UPDATE subscriptions SET 
-                        is_active = 1,
-                        status = 'completed'
-                    WHERE id = ?
-                ''', (recent_payment['id'],))
-                
-                db.commit()
-                session['is_premium'] = True
-                flash('Pagamento confirmado! Acesso premium ativado.', 'success')
-                return redirect(url_for('index'))
-            else:
-                flash('Nenhum pagamento recente encontrado', 'warning')
-                return redirect(url_for('payment_verify'))
-        except Exception as e:
-            logger.error(f"Payment verification error: {str(e)}")
-            flash('Erro na verificação', 'danger')
-            return redirect(url_for('payment_verify'))
-        finally:
-            db.close()
-    
-    return render_template('payment_verify.html')
+# =============================================
+# ERROR HANDLERS
+# =============================================
 
-# Handlers de erro
 @app.errorhandler(404)
 def page_not_found(e):
-    return render_template('error.html', message="Página não encontrada"), 404
+    return render_template('error.html', message="Page not found"), 404
+
+@app.errorhandler(403)
+def forbidden(e):
+    return render_template('error.html', message="Access denied"), 403
 
 @app.errorhandler(500)
-def internal_error(e):
-    return render_template('error.html', message="Erro interno"), 500
+def internal_server_error(e):
+    logger.error(f"Internal server error: {str(e)}")
+    return render_template('error.html', message="Internal server error"), 500
 
-# Ponto de entrada
+# =============================================
+# INITIALIZATION
+# =============================================
+
+with app.app_context():
+    try:
+        init_db()
+        logger.info("Application initialized successfully")
+    except Exception as e:
+        logger.critical(f"Failed to initialize application: {str(e)}")
+        raise
+
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
+    port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
