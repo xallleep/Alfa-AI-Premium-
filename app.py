@@ -3,16 +3,17 @@ import re
 import logging
 from datetime import datetime, timedelta
 from functools import wraps
-from flask import Flask, render_template, request, redirect, url_for, flash, session
+from flask import Flask, render_template, request, redirect, url_for, flash, session, abort
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_wtf import FlaskForm, CSRFProtect
-from wtforms import StringField, PasswordField, HiddenField, IntegerField, FloatField, TextAreaField
+from wtforms import StringField, PasswordField, HiddenField, IntegerField, FloatField, TextAreaField, SelectField
 from wtforms.validators import DataRequired, Email, Length, ValidationError, NumberRange
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 import psycopg2
 from psycopg2.pool import SimpleConnectionPool
+import requests
 
 # Configuração
 load_dotenv()
@@ -31,6 +32,8 @@ class Config:
         'monthly': os.environ.get('PAGBANK_MONTHLY_LINK', 'https://pag.ae/7YwQq6rGd'),
         'yearly': os.environ.get('PAGBANK_YEARLY_LINK', 'https://pag.ae/7YwQq6rGd')
     }
+    PAGBANK_API_KEY = os.environ.get('PAGBANK_API_KEY', '')
+    PAGBANK_WEBHOOK_SECRET = os.environ.get('PAGBANK_WEBHOOK_SECRET', '')
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -62,7 +65,7 @@ def init_connection_pool():
             db_url = db_url.replace('postgres://', 'postgresql://', 1)
         connection_pool = SimpleConnectionPool(
             minconn=1,
-            maxconn=3,
+            maxconn=5,
             dsn=db_url,
             connect_timeout=5
         )
@@ -94,7 +97,10 @@ class SubscriptionForm(FlaskForm):
     confirm_password = PasswordField('Confirmar Senha', validators=[
         DataRequired("Confirme sua senha")
     ])
-    subscription_type = HiddenField('Tipo', validators=[DataRequired()])
+    subscription_type = SelectField('Plano', choices=[
+        ('monthly', 'Mensal - R$29,90'),
+        ('yearly', 'Anual - R$299,00 (20% off)')
+    ], validators=[DataRequired()])
 
     def validate_password(self, field):
         if not re.match(r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$', field.data):
@@ -155,6 +161,15 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+def premium_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get('is_premium', False):
+            flash('Assinatura premium requerida', 'warning')
+            return redirect(url_for('premium_subscription'))
+        return f(*args, **kwargs)
+    return decorated_function
+
 def is_premium_user(user_id):
     conn = None
     try:
@@ -174,9 +189,32 @@ def is_premium_user(user_id):
         if conn:
             return_db(conn)
 
+def verify_pagbank_payment(payment_id):
+    """Verifica o status de um pagamento no PagBank"""
+    if not app.config['PAGBANK_API_KEY']:
+        logger.warning("PagBank API key not configured - skipping payment verification")
+        return True
+        
+    try:
+        headers = {
+            'Authorization': f'Bearer {app.config["PAGBANK_API_KEY"]}',
+            'Content-Type': 'application/json'
+        }
+        response = requests.get(
+            f'https://api.pagseguro.com/orders/{payment_id}',
+            headers=headers
+        )
+        response.raise_for_status()
+        data = response.json()
+        
+        return data.get('status') == 'PAID'
+    except Exception as e:
+        logger.error(f"Payment verification error: {str(e)}")
+        return False
+
 # Rotas Públicas
 @app.route('/')
-def home():
+def index():
     conn = None
     try:
         conn = get_db()
@@ -217,8 +255,10 @@ def home():
         
         # Formatar datas
         for m in today_matches + other_matches:
-            m['date'] = m['date'].strftime('%d/%m/%Y')
-            m['time'] = m['time'].strftime('%H:%M')
+            if m['date']:
+                m['date'] = m['date'].strftime('%d/%m/%Y')
+            if m['time']:
+                m['time'] = m['time'].strftime('%H:%M')
         
         return render_template('index.html',
                             today_matches=today_matches,
@@ -256,7 +296,9 @@ def user_login():
                 session['user_id'] = user[0]
                 session['is_premium'] = is_premium_user(user[0])
                 flash('Login realizado!', 'success')
-                return redirect(url_for('dashboard'))
+                
+                next_page = request.args.get('next')
+                return redirect(next_page or url_for('dashboard'))
             else:
                 flash('Email ou senha incorretos', 'danger')
         except Exception as e:
@@ -265,7 +307,7 @@ def user_login():
         finally:
             if conn:
                 return_db(conn)
-    return render_template('admin_login.html', form=form)
+    return render_template('login.html', form=form)
 
 @app.route('/premium', methods=['GET', 'POST'])
 def premium_subscription():
@@ -296,23 +338,26 @@ def premium_subscription():
                 ))
                 user_id = cur.fetchone()[0]
             
-            # Cria assinatura
+            # Cria assinatura pendente (será ativada após pagamento)
             expiry_date = datetime.now() + timedelta(
                 days=365 if form.subscription_type.data == 'yearly' else 30
             )
             cur.execute('''
                 INSERT INTO subscriptions (user_id, subscription_type, expiry_date, is_active)
-                VALUES (%s, %s, %s, TRUE)
+                VALUES (%s, %s, %s, FALSE)
+                RETURNING id
             ''', (user_id, form.subscription_type.data, expiry_date))
+            subscription_id = cur.fetchone()[0]
             
             conn.commit()
             
             session['logged_in'] = True
             session['user_id'] = user_id
-            session['is_premium'] = True
+            session['subscription_id'] = subscription_id
             
-            flash('Assinatura criada com sucesso! Redirecionando para pagamento...', 'success')
-            return redirect(app.config['PAGBANK_LINKS'][form.subscription_type.data])
+            # Redireciona para PagBank
+            payment_link = app.config['PAGBANK_LINKS'][form.subscription_type.data]
+            return redirect(payment_link)
             
         except Exception as e:
             if conn:
@@ -324,19 +369,87 @@ def premium_subscription():
                 return_db(conn)
     return render_template('premium.html', form=form)
 
+@app.route('/payment/callback', methods=['POST'])
+def payment_callback():
+    # Verificar assinatura do webhook
+    if request.headers.get('X-PagSeguro-Signature') != app.config['PAGBANK_WEBHOOK_SECRET']:
+        abort(403)
+    
+    data = request.get_json()
+    payment_id = data.get('id')
+    status = data.get('status')
+    
+    if status == 'PAID':
+        # Ativar assinatura
+        conn = None
+        try:
+            conn = get_db()
+            cur = conn.cursor()
+            
+            # Atualiza a assinatura como ativa
+            cur.execute('''
+                UPDATE subscriptions
+                SET is_active = TRUE
+                WHERE id = %s
+            ''', (session.get('subscription_id'),))
+            
+            conn.commit()
+            
+            # Atualiza status premium na sessão
+            if 'user_id' in session:
+                session['is_premium'] = True
+            
+            logger.info(f"Payment {payment_id} confirmed - subscription activated")
+            return '', 200
+        except Exception as e:
+            if conn:
+                conn.rollback()
+            logger.error(f"Payment callback error: {str(e)}")
+            return '', 500
+        finally:
+            if conn:
+                return_db(conn)
+    
+    return '', 200
+
 # Rotas Autenticadas
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    return render_template('dashboard.html', is_premium=session.get('is_premium', False))
+    conn = None
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        
+        # Verifica status da assinatura
+        cur.execute('''
+            SELECT expiry_date FROM subscriptions 
+            WHERE user_id = %s AND is_active = TRUE
+            ORDER BY expiry_date DESC LIMIT 1
+        ''', (session['user_id'],))
+        subscription = cur.fetchone()
+        
+        expiry_date = subscription[0] if subscription else None
+        is_premium = expiry_date and expiry_date >= datetime.now().date()
+        
+        session['is_premium'] = is_premium
+        
+        return render_template('dashboard.html', 
+                             is_premium=is_premium,
+                             expiry_date=expiry_date)
+    except Exception as e:
+        logger.error(f"Dashboard error: {str(e)}")
+        return render_template('dashboard.html', 
+                             is_premium=False,
+                             expiry_date=None)
+    finally:
+        if conn:
+            return_db(conn)
 
 @app.route('/premium/matches')
 @login_required
+@premium_required
 def premium_matches():
-    if not session.get('is_premium', False):
-        flash('Assinatura premium requerida', 'warning')
-        return redirect(url_for('premium_subscription'))
-    
     conn = None
     try:
         conn = get_db()
@@ -358,8 +471,10 @@ def premium_matches():
         
         # Formata datas
         for m in matches:
-            m['date'] = m['date'].strftime('%d/%m/%Y')
-            m['time'] = m['time'].strftime('%H:%M')
+            if m['date']:
+                m['date'] = m['date'].strftime('%d/%m/%Y')
+            if m['time']:
+                m['time'] = m['time'].strftime('%H:%M')
         
         return render_template('premium_matches.html', 
                             matches=matches,
@@ -396,10 +511,21 @@ def admin_dashboard():
         users = cur.fetchone()[0]
         cur.execute('SELECT COUNT(*) FROM matches')
         matches = cur.fetchone()[0]
-        return render_template('admin_dashboard.html', users=users, matches=matches)
+        cur.execute('''
+            SELECT COUNT(*) FROM subscriptions 
+            WHERE is_active = TRUE AND expiry_date >= CURRENT_DATE
+        ''')
+        active_subscriptions = cur.fetchone()[0]
+        return render_template('admin_dashboard.html', 
+                             users=users, 
+                             matches=matches,
+                             active_subscriptions=active_subscriptions)
     except Exception as e:
         logger.error(f"Admin dashboard error: {str(e)}")
-        return render_template('admin_dashboard.html', users=0, matches=0)
+        return render_template('admin_dashboard.html', 
+                             users=0, 
+                             matches=0,
+                             active_subscriptions=0)
     finally:
         if conn:
             return_db(conn)
@@ -424,14 +550,14 @@ def add_match():
                 form.away_team.data,
                 form.match_date.data,
                 form.match_time.data,
-                form.home_win.data,
-                form.draw.data,
-                form.away_win.data,
-                form.over_15.data,
-                form.over_25.data,
-                form.cards.data,
-                form.corners.data,
-                form.accuracy.data,
+                form.home_win.data or 0,
+                form.draw.data or 0,
+                form.away_win.data or 0,
+                form.over_15.data or 0,
+                form.over_25.data or 0,
+                form.cards.data or 0,
+                form.corners.data or 0,
+                form.accuracy.data or 0,
                 form.details.data
             ))
             conn.commit()
@@ -487,10 +613,10 @@ def edit_match(match_id):
         ''', (
             form.home_team.data, form.away_team.data,
             form.match_date.data, form.match_time.data,
-            form.home_win.data, form.draw.data, form.away_win.data,
-            form.over_15.data, form.over_25.data,
-            form.cards.data, form.corners.data,
-            form.accuracy.data, form.details.data,
+            form.home_win.data or 0, form.draw.data or 0, form.away_win.data or 0,
+            form.over_15.data or 0, form.over_25.data or 0,
+            form.cards.data or 0, form.corners.data or 0,
+            form.accuracy.data or 0, form.details.data,
             match_id
         ))
         conn.commit()
@@ -507,11 +633,39 @@ def edit_match(match_id):
         if conn:
             return_db(conn)
 
+@app.route('/admin/subscriptions')
+@admin_required
+def admin_subscriptions():
+    conn = None
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute('''
+            SELECT s.id, u.email, s.subscription_type, s.expiry_date, s.is_active
+            FROM subscriptions s
+            JOIN users u ON s.user_id = u.id
+            ORDER BY s.expiry_date DESC
+        ''')
+        subscriptions = [dict(zip(
+            ['id', 'email', 'type', 'expiry_date', 'is_active'],
+            row
+        )) for row in cur.fetchall()]
+        
+        return render_template('admin_subscriptions.html', 
+                            subscriptions=subscriptions)
+    except Exception as e:
+        logger.error(f"Subscriptions error: {str(e)}")
+        return render_template('admin_subscriptions.html', 
+                            subscriptions=[])
+    finally:
+        if conn:
+            return_db(conn)
+
 @app.route('/logout')
 def logout():
     session.clear()
     flash('Você saiu do sistema', 'info')
-    return redirect(url_for('home'))
+    return redirect(url_for('index'))
 
 # Inicialização do Banco
 def init_db():
@@ -558,7 +712,7 @@ def init_db():
                 user_id INTEGER REFERENCES users(id),
                 subscription_type TEXT NOT NULL,
                 expiry_date DATE NOT NULL,
-                is_active BOOLEAN DEFAULT TRUE,
+                is_active BOOLEAN DEFAULT FALSE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
