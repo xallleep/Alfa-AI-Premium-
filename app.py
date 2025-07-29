@@ -28,8 +28,8 @@ class Config:
     SESSION_COOKIE_SAMESITE = 'Lax'
     PERMANENT_SESSION_LIFETIME = timedelta(hours=2)
     PAGBANK_LINKS = {
-        'monthly': os.environ.get('PAGBANK_MONTHLY_LINK', 'https://pagbank.com/monthly'),
-        'yearly': os.environ.get('PAGBANK_YEARLY_LINK', 'https://pagbank.com/yearly')
+        'monthly': os.environ.get('PAGBANK_MONTHLY_LINK', 'https://pag.ae/7YwQq6rGd'),
+        'yearly': os.environ.get('PAGBANK_YEARLY_LINK', 'https://pag.ae/7YwQq6rGd')
     }
 
 app = Flask(__name__)
@@ -51,7 +51,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger('alfaai')
 
-# Database Pool (Otimizado para Render Starter)
+# Database Pool
 connection_pool = None
 
 def init_connection_pool():
@@ -62,7 +62,7 @@ def init_connection_pool():
             db_url = db_url.replace('postgres://', 'postgresql://', 1)
         connection_pool = SimpleConnectionPool(
             minconn=1,
-            maxconn=3,  # Adequado para o plano Starter
+            maxconn=3,
             dsn=db_url,
             connect_timeout=5
         )
@@ -89,7 +89,7 @@ class SubscriptionForm(FlaskForm):
     ])
     password = PasswordField('Senha', validators=[
         DataRequired("Senha é obrigatória"),
-        Length(8, "Mínimo 8 caracteres")
+        Length(8, 128, "Mínimo 8 caracteres")
     ])
     confirm_password = PasswordField('Confirmar Senha', validators=[
         DataRequired("Confirme sua senha")
@@ -161,11 +161,12 @@ def is_premium_user(user_id):
         conn = get_db()
         cur = conn.cursor()
         cur.execute('''
-            SELECT 1 FROM subscriptions 
-            WHERE user_id = %s AND expiry_date >= CURRENT_DATE
-            LIMIT 1
+            SELECT expiry_date FROM subscriptions 
+            WHERE user_id = %s AND expiry_date >= CURRENT_DATE AND is_active = TRUE
+            ORDER BY expiry_date DESC LIMIT 1
         ''', (user_id,))
-        return cur.fetchone() is not None
+        result = cur.fetchone()
+        return result is not None
     except Exception as e:
         logger.error(f"Premium check error: {str(e)}")
         return False
@@ -176,7 +177,65 @@ def is_premium_user(user_id):
 # Rotas Públicas
 @app.route('/')
 def home():
-    return render_template('index.html')
+    conn = None
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        
+        # Pegar jogos de hoje
+        cur.execute('''
+            SELECT id, home_team, away_team, match_date, match_time,
+                   home_win, draw, away_win, over_15, over_25,
+                   cards, corners, accuracy, details
+            FROM matches
+            WHERE match_date = CURRENT_DATE
+            ORDER BY match_time
+        ''')
+        today_matches = [dict(zip(
+            ['id', 'home_team', 'away_team', 'date', 'time', 
+             'home_win', 'draw', 'away_win', 'over_15', 'over_25',
+             'cards', 'corners', 'accuracy', 'details'],
+            row
+        )) for row in cur.fetchall()]
+        
+        # Pegar próximos jogos
+        cur.execute('''
+            SELECT id, home_team, away_team, match_date, match_time,
+                   home_win, draw, away_win, over_15, over_25,
+                   cards, corners, accuracy, details
+            FROM matches
+            WHERE match_date > CURRENT_DATE
+            ORDER BY match_date, match_time
+            LIMIT 10
+        ''')
+        other_matches = [dict(zip(
+            ['id', 'home_team', 'away_team', 'date', 'time', 
+             'home_win', 'draw', 'away_win', 'over_15', 'over_25',
+             'cards', 'corners', 'accuracy', 'details'],
+            row
+        )) for row in cur.fetchall()]
+        
+        # Formatar datas
+        for m in today_matches + other_matches:
+            m['date'] = m['date'].strftime('%d/%m/%Y')
+            m['time'] = m['time'].strftime('%H:%M')
+        
+        return render_template('index.html',
+                            today_matches=today_matches,
+                            other_matches=other_matches,
+                            last_updated=datetime.now().strftime('%d/%m/%Y %H:%M'),
+                            is_premium=session.get('is_premium', False))
+        
+    except Exception as e:
+        logger.error(f"Home error: {str(e)}")
+        return render_template('index.html',
+                            today_matches=[],
+                            other_matches=[],
+                            last_updated=datetime.now().strftime('%d/%m/%Y %H:%M'),
+                            is_premium=session.get('is_premium', False))
+    finally:
+        if conn:
+            return_db(conn)
 
 @app.route('/login', methods=['GET', 'POST'])
 @limiter.limit("5 per minute")
@@ -198,13 +257,15 @@ def user_login():
                 session['is_premium'] = is_premium_user(user[0])
                 flash('Login realizado!', 'success')
                 return redirect(url_for('dashboard'))
+            else:
+                flash('Email ou senha incorretos', 'danger')
         except Exception as e:
             logger.error(f"Login error: {str(e)}")
             flash('Erro no login', 'danger')
         finally:
             if conn:
                 return_db(conn)
-    return render_template('login.html', form=form)
+    return render_template('admin_login.html', form=form)
 
 @app.route('/premium', methods=['GET', 'POST'])
 def premium_subscription():
@@ -216,11 +277,14 @@ def premium_subscription():
             cur = conn.cursor()
             
             # Verifica se usuário já existe
-            cur.execute('SELECT id FROM users WHERE email = %s', (form.email.data,))
+            cur.execute('SELECT id, password FROM users WHERE email = %s', (form.email.data,))
             user = cur.fetchone()
             
             if user:
                 user_id = user[0]
+                if not check_password_hash(user[1], form.password.data):
+                    flash('Senha incorreta para este email', 'danger')
+                    return redirect(url_for('premium_subscription'))
             else:
                 # Cria novo usuário
                 cur.execute('''
@@ -237,8 +301,8 @@ def premium_subscription():
                 days=365 if form.subscription_type.data == 'yearly' else 30
             )
             cur.execute('''
-                INSERT INTO subscriptions (user_id, subscription_type, expiry_date)
-                VALUES (%s, %s, %s)
+                INSERT INTO subscriptions (user_id, subscription_type, expiry_date, is_active)
+                VALUES (%s, %s, %s, TRUE)
             ''', (user_id, form.subscription_type.data, expiry_date))
             
             conn.commit()
@@ -247,7 +311,7 @@ def premium_subscription():
             session['user_id'] = user_id
             session['is_premium'] = True
             
-            flash('Assinatura ativada!', 'success')
+            flash('Assinatura criada com sucesso! Redirecionando para pagamento...', 'success')
             return redirect(app.config['PAGBANK_LINKS'][form.subscription_type.data])
             
         except Exception as e:
@@ -260,29 +324,6 @@ def premium_subscription():
                 return_db(conn)
     return render_template('premium.html', form=form)
 
-@app.route('/payment/verify', methods=['GET', 'POST'])
-def payment_verify():
-    if request.method == 'POST':
-        email = request.form.get('email')
-        # Simulação de verificação
-        conn = None
-        try:
-            conn = get_db()
-            cur = conn.cursor()
-            cur.execute('''
-                UPDATE subscriptions SET is_active = TRUE
-                WHERE user_id = (SELECT id FROM users WHERE email = %s)
-            ''', (email,))
-            conn.commit()
-            flash('Pagamento verificado!', 'success')
-        except Exception as e:
-            logger.error(f"Payment verify error: {str(e)}")
-            flash('Erro na verificação', 'danger')
-        finally:
-            if conn:
-                return_db(conn)
-    return render_template('payment_verify.html')
-
 # Rotas Autenticadas
 @app.route('/dashboard')
 @login_required
@@ -294,7 +335,7 @@ def dashboard():
 def premium_matches():
     if not session.get('is_premium', False):
         flash('Assinatura premium requerida', 'warning')
-        return redirect(url_for('premium'))
+        return redirect(url_for('premium_subscription'))
     
     conn = None
     try:
@@ -306,7 +347,7 @@ def premium_matches():
                    cards, corners, accuracy, details
             FROM matches
             WHERE match_date >= CURRENT_DATE
-            ORDER BY match_date
+            ORDER BY match_date, match_time
         ''')
         matches = [dict(zip(
             ['id', 'home_team', 'away_team', 'date', 'time', 
@@ -318,8 +359,11 @@ def premium_matches():
         # Formata datas
         for m in matches:
             m['date'] = m['date'].strftime('%d/%m/%Y')
+            m['time'] = m['time'].strftime('%H:%M')
         
-        return render_template('premium_matches.html', matches=matches)
+        return render_template('premium_matches.html', 
+                            matches=matches,
+                            last_updated=datetime.now().strftime('%d/%m/%Y %H:%M'))
     except Exception as e:
         logger.error(f"Matches error: {str(e)}")
         return render_template('premium_matches.html', matches=[])
@@ -352,10 +396,10 @@ def admin_dashboard():
         users = cur.fetchone()[0]
         cur.execute('SELECT COUNT(*) FROM matches')
         matches = cur.fetchone()[0]
-        return render_template('dashboard.html', users=users, matches=matches)
+        return render_template('admin_dashboard.html', users=users, matches=matches)
     except Exception as e:
         logger.error(f"Admin dashboard error: {str(e)}")
-        return render_template('dashboard.html', users=0, matches=0)
+        return render_template('admin_dashboard.html', users=0, matches=0)
     finally:
         if conn:
             return_db(conn)
@@ -486,7 +530,7 @@ def init_db():
             )
         ''')
         
-        # Tabela de partidas (com todos os campos de estatísticas)
+        # Tabela de partidas
         cur.execute('''
             CREATE TABLE IF NOT EXISTS matches (
                 id SERIAL PRIMARY KEY,

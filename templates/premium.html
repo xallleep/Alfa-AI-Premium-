@@ -52,6 +52,17 @@
                                     </div>
                                 {% endif %}
                             </div>
+                            <div class="mb-3">
+                                {{ form.confirm_password.label(class="form-label") }}
+                                {{ form.confirm_password(class="form-control") }}
+                                {% if form.confirm_password.errors %}
+                                    <div class="invalid-feedback">
+                                        {% for error in form.confirm_password.errors %}
+                                            {{ error }}
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
                             <button type="submit" class="btn btn-premium btn-lg w-100">
                                 Assinar Mensalmente por R$6,99
                             </button>
@@ -95,6 +106,17 @@
                                     </div>
                                 {% endif %}
                             </div>
+                            <div class="mb-3">
+                                {{ form.confirm_password.label(class="form-label") }}
+                                {{ form.confirm_password(class="form-control") }}
+                                {% if form.confirm_password.errors %}
+                                    <div class="invalid-feedback">
+                                        {% for error in form.confirm_password.errors %}
+                                            {{ error }}
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
                             <button type="submit" class="btn btn-warning btn-lg w-100">
                                 Assinar Anualmente por R$80,99
                             </button>
@@ -105,7 +127,6 @@
         </div>
 
         <div class="text-center mt-4">
-            <p class="text-muted">Já assinou? <a href="{{ url_for('payment_verify') }}">Verifique seu pagamento aqui</a></p>
             <p class="text-muted">Já tem conta? <a href="{{ url_for('user_login') }}">Faça login</a></p>
         </div>
     </div>
